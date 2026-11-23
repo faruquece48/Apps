@@ -43,6 +43,9 @@ svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width:
 .slide.dragging { transition: none; }
 .slide video, .slide iframe { display: block; width: 100%; height: 100%; border: 0; object-fit: cover; }
 .slide video.wide { object-fit: contain; }
+/* Drive's "open in new window" button sits in the top strip of its player, so crop that strip off. */
+.slide { overflow: hidden; }
+.slide iframe { position: absolute; top: -64px; left: 0; height: calc(100% + 64px); }
 
 .drive-controls #rail, .drive-controls #info { display: none; }
 .drive-controls #stage::after { display: none; }
