@@ -96,9 +96,13 @@ function sourceOf(item) {
   return '';
 }
 
-function matches(item) {
+function matchesFilters(item) {
   return (category === 'all' || item.category === category)
     && (!query || item.title.toLowerCase().includes(query));
+}
+
+function matches(item) {
+  return !item.reel && matchesFilters(item);
 }
 
 function toggleFavourite(id) {
@@ -194,10 +198,10 @@ function renderGrids() {
   } else if (view === 'videos') {
     fillGrid(el.videosGrid, list, noneText);
   } else if (view === 'favourite') {
-    fillGrid(el.favouriteGrid, list.filter((item) => favourites.has(item.id)),
+    fillGrid(el.favouriteGrid, allVideos.filter((item) => favourites.has(item.id) && matchesFilters(item)),
       query ? 'No videos found.' : 'Tap the heart on a video to save it here.');
   } else if (view === 'watch') {
-    fillGrid(el.watchGrid, allVideos.filter((item) => item.id !== current?.id), 'More videos coming soon.');
+    fillGrid(el.watchGrid, allVideos.filter((item) => !item.reel && item.id !== current?.id), 'More videos coming soon.');
   } else if (view === 'image') {
     renderImages();
   }

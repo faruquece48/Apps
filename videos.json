@@ -2,6 +2,21 @@
   "driveApiKey": "",
   "videos": [
     { "title": "V_1", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_1.mp4" },
-    { "title": "V_2", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_2.mp4" }
+    { "title": "V_2", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_2.mp4" },
+    { "title": "R_1", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_1.mp4", "reel": true },
+    { "title": "R_2", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_2.mp4", "reel": true },
+    { "title": "R_3", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_3.mp4", "reel": true },
+    { "title": "R_4", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_4.mp4", "reel": true },
+    { "title": "R_5", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_5.mp4", "reel": true },
+    { "title": "R_6", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_6.mp4", "reel": true },
+    { "title": "R_7", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_7.mp4", "reel": true },
+    { "title": "R_8", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_8.mp4", "reel": true },
+    { "title": "R_9", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_9.mp4", "reel": true },
+    { "title": "R_10", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_10.mp4", "reel": true },
+    { "title": "R_11", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_11.mp4", "reel": true },
+    { "title": "R_12", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_12.mp4", "reel": true },
+    { "title": "R_13", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_13.mp4", "reel": true },
+    { "title": "R_14", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_14.mp4", "reel": true },
+    { "title": "R_15", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_15.mp4", "reel": true }
   ]
 }

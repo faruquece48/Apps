@@ -26,7 +26,7 @@ Edit `videos.json`. Only `url` is required for each entry.
 
 - `category` is one of `cartoon`, `rhymes`, `stories` or `learning`. Videos without one appear only under **All**.
 - `thumb` is a 1280 x 720 picture for the video card. Without it, the app uses a frame from the video.
-- `reel: true` puts a video on the Reels page. If no video has it, Reels shows every video.
+- `reel: true` shows a video only on the Reels page, and in Favourite if saved. If no video has it, Reels shows every video.
 
 Google Drive links still work: use `"link"` instead of `"url"`. Without a `driveApiKey` they open in Google's player. The key is visible to site visitors, so restrict it to the Drive API and your site's address.
 
