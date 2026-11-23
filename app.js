@@ -85,6 +85,7 @@ function syncRail() {
 
 function mountIframe(target, id) {
   target.replaceChildren();
+  target.style.background = `#000 url("https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1000") center / contain no-repeat`;
   const frame = document.createElement('iframe');
   frame.src = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
   frame.allow = 'autoplay; fullscreen; encrypted-media';
@@ -132,6 +133,7 @@ async function play(video) {
 function setPassthrough(on) {
   clearTimeout(passthroughTimer);
   el.gestures.classList.toggle('passthrough', on);
+  document.body.classList.toggle('drive-controls', on);
   if (on) passthroughTimer = setTimeout(() => setPassthrough(false), DRIVE_CONTROLS_MS);
 }
 
