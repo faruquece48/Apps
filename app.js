@@ -1,6 +1,8 @@
 'use strict';
 
 const CONTROLS_MS = 3000;
+const REEL_SWIPE = 50;
+const REEL_WHEEL_MS = 700;
 const TITLES = { home: 'Home', image: 'Images', videos: 'Videos', reels: 'Reels', favourite: 'Favourite', login: 'Login', watch: 'Videos' };
 const LANDSCAPE_VIEWS = new Set(['videos', 'watch']);
 
@@ -49,6 +51,8 @@ let controlsTimer = 0;
 let messageTimer = 0;
 let activeReel = null;
 let reelObserver = null;
+let reelActiveAt = 0;
+let reelTouch = null;
 
 function driveId(link) {
   const value = String(link || '').trim();
@@ -452,11 +456,36 @@ function activateReel(node) {
   if (view !== 'reels' || activeReel === node) return;
   stopReel();
   activeReel = node;
+  reelActiveAt = Date.now();
   const item = allVideos.find((video) => video.id === node.dataset.id);
   const video = node.querySelector('video');
   video.src = sourceOf(item);
   playWithSound(video);
 }
+
+// Scrolling past the last reel starts again from the first.
+function firstReel() {
+  el.reels.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+function onLastReel() {
+  return Boolean(activeReel && !activeReel.nextElementSibling);
+}
+
+el.reels.addEventListener('touchstart', (event) => {
+  reelTouch = onLastReel() ? event.changedTouches[0].clientY : null;
+}, { passive: true });
+
+el.reels.addEventListener('touchend', (event) => {
+  if (reelTouch !== null && onLastReel() && reelTouch - event.changedTouches[0].clientY > REEL_SWIPE) {
+    firstReel();
+  }
+  reelTouch = null;
+}, { passive: true });
+
+el.reels.addEventListener('wheel', (event) => {
+  if (event.deltaY > 20 && onLastReel() && Date.now() - reelActiveAt > REEL_WHEEL_MS) firstReel();
+}, { passive: true });
 
 function stopReel() {
   if (!activeReel) return;
