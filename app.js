@@ -99,13 +99,17 @@ function mountIframe(target, id) {
   }
 }
 
-function mountVideo(target, id) {
+function mountVideo(target, item) {
+  const { id } = item;
   const video = document.createElement('video');
-  video.src = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&key=${encodeURIComponent(apiKey)}`;
+  video.src = item.url || `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&key=${encodeURIComponent(apiKey)}`;
   video.playsInline = true;
   video.loop = true;
   video.preload = 'auto';
-  video.addEventListener('error', () => mountIframe(target, id), { once: true });
+  video.addEventListener('error', () => {
+    if (!item.url) mountIframe(target, id);
+    else if (slide?.video === video) showMessage('This video could not be played.');
+  }, { once: true });
   video.addEventListener('loadedmetadata', () => {
     video.classList.toggle('wide', video.videoWidth > video.videoHeight);
   });
@@ -148,9 +152,11 @@ function show(nextIndex, dir = { x: 0, y: 0 }) {
   const old = slide;
   slide = { node, video: null };
   el.seek.value = 0;
-  el.seek.hidden = !apiKey;
-  el.sound.hidden = !apiKey;
-  if (apiKey) slide.video = mountVideo(node, item.id);
+  showMessage('');
+  const native = Boolean(item.url || apiKey);
+  el.seek.hidden = !native;
+  el.sound.hidden = !native;
+  if (native) slide.video = mountVideo(node, item);
   else mountIframe(node, item.id);
   el.stage.append(node);
 
@@ -169,7 +175,14 @@ function show(nextIndex, dir = { x: 0, y: 0 }) {
     old.video?.pause();
     old.node.classList.remove('dragging');
     old.node.style.transform = `translate(${dir.x * 100}%, ${dir.y * 100}%)`;
-    setTimeout(() => old.node.remove(), SLIDE_MS + 40);
+    setTimeout(() => {
+      old.node.remove();
+      if (old.video) {
+        // Stop the download of the video that was swiped away.
+        old.video.removeAttribute('src');
+        old.video.load();
+      }
+    }, SLIDE_MS + 40);
   }
   if (slide.video) play(slide.video);
 }
@@ -330,7 +343,12 @@ async function start() {
     apiKey = String(data.driveApiKey || '').trim();
     channelName = data.channel || channelName;
     allVideos = (data.videos || [])
-      .map((item, i) => ({ id: driveId(item.link), title: item.title || `Video ${i + 1}`, channel: item.channel }))
+      .map((item, i) => ({
+        id: item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link),
+        url: item.url,
+        title: item.title || `Video ${i + 1}`,
+        channel: item.channel,
+      }))
       .filter((item) => item.id);
     videos = allVideos;
   } catch {

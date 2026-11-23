@@ -1,7 +1,7 @@
 {
   "driveApiKey": "",
   "videos": [
-    {"title":"V_1","link":"https://drive.google.com/file/d/1xWbAu_kn1jd-NQLXYoR6Ze8ObtW0TAlF/view"},
-    {"title":"V_2","link":"https://drive.google.com/file/d/1gFdUKLsovQyzohoXhfPJtC12DZ5aUE_4/view"}
+    { "title": "V_1", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_1.mp4" },
+    { "title": "V_2", "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_2.mp4" }
   ]
 }
