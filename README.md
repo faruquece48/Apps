@@ -4,31 +4,29 @@ A dark, portrait-first video app for kids with Home, Image, Videos, Reels, Favou
 
 ## Add videos and images
 
-Edit `videos.json`. Only `url` is required for each entry.
+Edit `videos.json`. Videos and reels each use one link line, where `{n}` is the file number.
 
 ```json
 {
   "driveApiKey": "",
-  "videos": [
-    {
-      "title": "Forest Friends",
-      "url": "https://your-r2-address/Videos/forest.mp4",
-      "category": "cartoon",
-      "thumb": "thumbs/forest.jpg",
-      "reel": false
-    }
-  ],
+  "videos": { "link": "https://your-r2-address/Videos/V_{n}.mp4", "count": 2 },
+  "reels": { "link": "https://your-r2-address/Reels/R_{n}.mp4", "count": 15 },
   "images": [
     { "title": "Happy Elephant", "url": "images/elephant.jpg" }
   ]
 }
 ```
 
-- `category` is one of `cartoon`, `rhymes`, `stories` or `learning`. Videos without one appear only under **All**.
-- `thumb` is a 1280 x 720 picture for the video card. Without it, the app uses a frame from the video.
-- `reel: true` shows a video only on the Reels page, and in Favourite if saved. If no video has it, Reels shows every video.
+To add files, upload the next numbers to R2 and raise `count`. Numbers must start at 1 with no gaps.
 
-Google Drive links still work: use `"link"` instead of `"url"`. Without a `driveApiKey` they open in Google's player. The key is visible to site visitors, so restrict it to the Drive API and your site's address.
+Optional settings inside `videos` or `reels`:
+
+- `"categories": { "cartoon": [1, 2], "rhymes": [3] }` sets the filter for each file number. The names are `cartoon`, `rhymes`, `stories` and `learning`. Files without one appear only under **All**.
+- `"thumb": "thumbs/V_{n}.jpg"` sets a 1280 x 720 card picture for every file. Without it, the app uses a frame from the video.
+
+Videos and reels stay separate. Reels appear only on the Reels page, and in Favourite if saved.
+
+`videos` can also be a list of separate entries, including Google Drive entries such as `{ "title": "My video", "link": "DRIVE_LINK" }`. Without a `driveApiKey` they open in Google's player. The key is visible to site visitors, so restrict it to the Drive API and your site's address.
 
 ## Screen rotation
 

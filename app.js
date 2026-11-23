@@ -399,8 +399,7 @@ function applyOrientation() {
 function buildReels() {
   reelObserver?.disconnect();
   activeReel = null;
-  const tagged = allVideos.filter((item) => item.reel && sourceOf(item));
-  const list = tagged.length ? tagged : allVideos.filter(sourceOf);
+  const list = allVideos.filter((item) => item.reel && sourceOf(item));
   if (!list.length) {
     el.reels.replaceChildren(emptyNode('No reels yet.'));
     return;
@@ -572,13 +571,34 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !el.lightbox.hidden) closeLightbox();
 });
 
+// Turns { link: ".../V_{n}.mp4", count: 2 } into one entry per file.
+function expandSource(source, reel) {
+  if (Array.isArray(source)) return source.map((item) => ({ ...item, reel: reel || item.reel }));
+  if (!source?.link) return [];
+  const categoryOf = new Map();
+  Object.entries(source.categories || {}).forEach(([name, numbers]) => {
+    numbers.forEach((n) => categoryOf.set(n, name));
+  });
+  return Array.from({ length: Number(source.count) || 0 }, (_, i) => {
+    const n = i + 1;
+    const url = source.link.replaceAll('{n}', n);
+    return {
+      title: decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, ''),
+      url,
+      category: categoryOf.get(n),
+      thumb: source.thumb ? source.thumb.replaceAll('{n}', n) : '',
+      reel,
+    };
+  });
+}
+
 async function start() {
   try {
     const response = await fetch('videos.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
     apiKey = String(data.driveApiKey || '').trim();
-    allVideos = (data.videos || [])
+    allVideos = [...expandSource(data.videos, false), ...expandSource(data.reels, true)]
       .map((item, i) => {
         const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
         return {
