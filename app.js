@@ -54,6 +54,7 @@ let reelObserver = null;
 let reelActiveAt = 0;
 let reelTouch = null;
 let reelResume = null;
+const brokenReels = new Set();
 let shuffleRanks = new Map();
 let holdPlayback = false;
 let started = false;
@@ -425,7 +426,7 @@ function buildReels() {
 }
 
 function reelList() {
-  return allVideos.filter((item) => item.reel && sourceOf(item));
+  return allVideos.filter((item) => item.reel && sourceOf(item) && !brokenReels.has(item.id));
 }
 
 // Adds and removes reels in place so the one playing is not interrupted.
@@ -472,6 +473,12 @@ function reelNode(item) {
   video.playsInline = true;
   video.preload = 'none';
   video.addEventListener('ended', () => nextReel(node));
+  video.addEventListener('error', () => {
+    // A missing file is dropped; a lost connection is not the reel's fault.
+    if (!video.getAttribute('src') || !navigator.onLine) return;
+    brokenReels.add(item.id);
+    syncReels();
+  });
   if (item.thumb) video.poster = item.thumb;
   video.addEventListener('loadedmetadata', () => {
     video.classList.toggle('wide', video.videoWidth > video.videoHeight);
