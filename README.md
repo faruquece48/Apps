@@ -28,6 +28,10 @@ Videos and reels stay separate. Reels appear only on the Reels page, and in Favo
 
 `videos` can also be a list of separate entries, including Google Drive entries such as `{ "title": "My video", "link": "DRIVE_LINK" }`. Without a `driveApiKey` they open in Google's player. The key is visible to site visitors, so restrict it to the Drive API and your site's address.
 
+## Shuffle
+
+Videos and reels get a new random order each time the app opens. The order stays the same during silent updates.
+
 ## Screen rotation
 
 Landscape is available on the Videos pages and in fullscreen playback. Other pages ask the viewer to turn the phone upright.

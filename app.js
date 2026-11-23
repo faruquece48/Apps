@@ -54,6 +54,7 @@ let reelObserver = null;
 let reelActiveAt = 0;
 let reelTouch = null;
 let reelResume = null;
+let shuffleRanks = new Map();
 let holdPlayback = false;
 let started = false;
 let loadFailed = false;
@@ -666,6 +667,12 @@ function expandSource(source, reel) {
   });
 }
 
+// Each file keeps one random position until the app is opened again.
+function shuffleRank(id) {
+  if (!shuffleRanks.has(id)) shuffleRanks.set(id, Math.random());
+  return shuffleRanks.get(id);
+}
+
 function setData(data) {
   apiKey = String(data.driveApiKey || '').trim();
   allVideos = [...expandSource(data.videos, false), ...expandSource(data.reels, true)]
@@ -680,17 +687,22 @@ function setData(data) {
         thumb: item.thumb || (!item.url && id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w640` : ''),
       };
     })
-    .filter((item) => item.id);
+    .filter((item) => item.id)
+    .sort((a, b) => shuffleRank(a.id) - shuffleRank(b.id));
   allImages = (data.images || [])
     .filter((item) => item.url)
     .map((item, i) => ({ url: item.url, title: item.title || `Image ${i + 1}` }));
 }
 
 async function start() {
+  let resume = null;
   try {
     const response = await fetch('videos.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(String(response.status));
-    setData(await response.json());
+    const data = await response.json();
+    resume = takeResumeState();
+    if (Array.isArray(resume?.order)) shuffleRanks = new Map(resume.order);
+    setData(data);
   } catch {
     if (!loadFailed) showMessage('Could not load videos. Check your internet.', 8000);
     loadFailed = true;
@@ -698,7 +710,6 @@ async function start() {
   }
   started = true;
   showMessage('');
-  const resume = takeResumeState();
   if (resume) restoreState(resume);
   else setView('home');
 }
@@ -772,6 +783,7 @@ function applyStyles() {
 function captureState() {
   const reelVideo = activeReel?.querySelector('video');
   return {
+    order: [...shuffleRanks],
     view,
     category,
     query: el.search.value,
