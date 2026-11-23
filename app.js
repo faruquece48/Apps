@@ -470,14 +470,16 @@ function reelNode(item) {
 
   const video = document.createElement('video');
   video.playsInline = true;
-  video.loop = true;
   video.preload = 'none';
+  video.addEventListener('ended', () => nextReel(node));
   if (item.thumb) video.poster = item.thumb;
   video.addEventListener('loadedmetadata', () => {
     video.classList.toggle('wide', video.videoWidth > video.videoHeight);
   });
   video.addEventListener('play', () => node.classList.remove('paused'));
-  video.addEventListener('pause', () => node.classList.add('paused'));
+  video.addEventListener('pause', () => {
+    if (!video.ended) node.classList.add('paused');
+  });
   video.addEventListener('click', () => {
     if (video.muted && wantsSound) video.muted = false;
     else if (video.paused) playWithSound(video);
@@ -518,6 +520,19 @@ function activateReel(node) {
 // Scrolling past the last reel starts again from the first.
 function firstReel() {
   el.reels.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+// A finished reel moves on to the next, and the last one continues to the first.
+function nextReel(node) {
+  if (node !== activeReel) return;
+  const next = node.nextElementSibling;
+  if (next) {
+    el.reels.scrollTo({ top: [...el.reels.children].indexOf(next) * el.reels.clientHeight, behavior: 'smooth' });
+  } else if (node.previousElementSibling) {
+    firstReel();
+  } else {
+    playWithSound(node.querySelector('video'));
+  }
 }
 
 function onLastReel() {
