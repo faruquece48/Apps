@@ -30,7 +30,6 @@ const el = {
   videosGrid: $('videos-grid'),
   favouriteGrid: $('favourite-grid'),
   watchGrid: $('watch-grid'),
-  watchTitle: $('watch-title'),
   reels: $('view-reels'),
   lightbox: $('lightbox'),
   lightboxImg: $('lightbox-img'),
@@ -220,12 +219,11 @@ function renderImages() {
     card.setAttribute('aria-label', `Open ${item.title}`);
     const image = document.createElement('img');
     image.src = item.url;
-    image.alt = item.title;
+    image.alt = '';
     image.loading = 'lazy';
     card.append(image);
     card.addEventListener('click', () => {
       el.lightboxImg.src = item.url;
-      el.lightboxImg.alt = item.title;
       el.lightbox.hidden = false;
     });
     return card;
@@ -446,10 +444,7 @@ function reelNode(item) {
   fav.innerHTML = '<svg><use href="#i-heart"/></svg>';
   fav.addEventListener('click', () => toggleFavourite(item.id));
 
-  const title = document.createElement('h3');
-  title.textContent = item.title;
-
-  node.append(video, icon, fav, title);
+  node.append(video, icon, fav);
   return node;
 }
 
@@ -501,7 +496,6 @@ function setView(next) {
       const first = allVideos.find(matches) || allVideos[0];
       if (first) loadPlayer(first);
     }
-    if (next === 'watch') el.watchTitle.textContent = current?.title || '';
     startPlayer();
   } else {
     el.video.pause();

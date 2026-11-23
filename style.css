@@ -299,7 +299,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
   font-size: 15px;
   font-weight: 500;
 }
-#watch-title { margin: 14px 0; font-size: 18px; font-weight: 600; line-height: 1.35; }
+#watch-grid { margin-top: 14px; }
 
 /* Reels */
 body[data-view="reels"] #top,
@@ -322,16 +322,6 @@ body[data-view="reels"] #content { padding: 0; overflow: hidden; }
 .reel video { display: block; width: 100%; height: 100%; object-fit: cover; }
 .reel video.wide { object-fit: contain; }
 .reel .fav { top: auto; right: 14px; bottom: 60px; }
-.reel h3 {
-  position: absolute;
-  left: 16px;
-  right: 72px;
-  bottom: 20px;
-  font-size: 16px;
-  font-weight: 600;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
-  pointer-events: none;
-}
 .reel .paused-icon {
   position: absolute;
   top: 50%;
@@ -470,7 +460,6 @@ body[data-view="reels"] #content { padding: 0; overflow: hidden; }
   body[data-view="watch"] #search-row,
   body[data-view="watch"] #tabs,
   body[data-view="watch"] #back,
-  body[data-view="watch"] #watch-title,
   body[data-view="watch"] #watch-grid { display: none; }
   body[data-view="watch"] #content { padding: 0; overflow: hidden; }
   body[data-view="watch"] #view-watch,
