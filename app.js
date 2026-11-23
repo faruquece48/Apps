@@ -235,4 +235,75 @@ async function start() {
   show(0);
 }
 
-start();
+const APP_FILES = ['./', 'app.js', 'style.css', 'videos.json'];
+const UPDATE_CHECK_MS = 60000;
+const updateButton = document.getElementById('update');
+const installButton = document.getElementById('install');
+let runningVersion = null;
+let installPrompt = null;
+
+async function readVersion(cache) {
+  const texts = await Promise.all(APP_FILES.map(async (file) => {
+    const response = await fetch(file, { cache });
+    if (!response.ok) throw new Error(String(response.status));
+    return response.text();
+  }));
+  return texts.join('\n');
+}
+
+async function checkForUpdate() {
+  if (document.hidden || !runningVersion || !updateButton.hidden) return;
+  try {
+    updateButton.hidden = (await readVersion('no-cache')) === runningVersion;
+  } catch {
+    // Offline or mid-deployment: try again on the next check.
+  }
+}
+
+async function watchForUpdates() {
+  try {
+    runningVersion = await readVersion('force-cache');
+  } catch {
+    return;
+  }
+  checkForUpdate();
+  setInterval(checkForUpdate, UPDATE_CHECK_MS);
+  document.addEventListener('visibilitychange', checkForUpdate);
+}
+
+updateButton.addEventListener('click', () => location.reload());
+
+function isInstalled() {
+  return navigator.standalone === true
+    || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+}
+
+const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  installButton.hidden = false;
+});
+
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  installButton.hidden = true;
+});
+
+installButton.addEventListener('click', async () => {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    installButton.hidden = true;
+  } else {
+    showMessage('In Safari, tap Share, then Add to Home Screen.');
+    setTimeout(() => showMessage(''), 6000);
+  }
+});
+
+if (isIos && !isInstalled()) installButton.hidden = false;
+
+start().then(watchForUpdates);

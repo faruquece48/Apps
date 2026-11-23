@@ -74,6 +74,29 @@ html, body {
   font-size: 14px;
 }
 
+#actions {
+  position: fixed;
+  z-index: 5;
+  top: calc(14px + env(safe-area-inset-top));
+  left: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+#actions button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 20px;
+  background: rgba(30, 30, 30, .85);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+}
+#actions button[hidden] { display: none; }
+#actions #update { background: #ff3b30; font-weight: 600; }
+
 #message {
   position: fixed;
   z-index: 4;
