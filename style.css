@@ -418,20 +418,6 @@ body[data-view="reels"] #content { padding: 0; overflow: hidden; }
 }
 #rotate svg { width: 44px; height: 44px; color: var(--accent); }
 
-#update {
-  position: fixed;
-  z-index: 15;
-  top: calc(12px + env(safe-area-inset-top));
-  left: 50%;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
-  background: var(--accent);
-  font-size: 14px;
-  font-weight: 600;
-  transform: translateX(-50%);
-}
-
 #message {
   position: fixed;
   z-index: 25;

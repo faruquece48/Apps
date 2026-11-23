@@ -53,6 +53,10 @@ let activeReel = null;
 let reelObserver = null;
 let reelActiveAt = 0;
 let reelTouch = null;
+let reelResume = null;
+let holdPlayback = false;
+let started = false;
+let loadFailed = false;
 
 function driveId(link) {
   const value = String(link || '').trim();
@@ -282,6 +286,10 @@ async function playWithSound(video, onDone) {
 
 function startPlayer() {
   if (!current || !el.video.getAttribute('src')) return;
+  if (holdPlayback) {
+    holdPlayback = false;
+    return;
+  }
   playWithSound(el.video, syncSound);
 }
 
@@ -401,7 +409,7 @@ function applyOrientation() {
 function buildReels() {
   reelObserver?.disconnect();
   activeReel = null;
-  const list = allVideos.filter((item) => item.reel && sourceOf(item));
+  const list = reelList();
   if (!list.length) {
     el.reels.replaceChildren(emptyNode('No reels yet.'));
     return;
@@ -413,6 +421,45 @@ function buildReels() {
     });
   }, { root: el.reels, threshold: 0.6 });
   el.reels.querySelectorAll('.reel').forEach((node) => reelObserver.observe(node));
+}
+
+function reelList() {
+  return allVideos.filter((item) => item.reel && sourceOf(item));
+}
+
+// Adds and removes reels in place so the one playing is not interrupted.
+function syncReels() {
+  if (view !== 'reels') return;
+  const list = reelList();
+  const nodes = new Map([...el.reels.querySelectorAll('.reel')].map((node) => [node.dataset.id, node]));
+  if (!nodes.size || !list.length) {
+    stopReel();
+    buildReels();
+    return;
+  }
+  nodes.forEach((node, id) => {
+    if (list.some((item) => item.id === id)) return;
+    if (node === activeReel) stopReel();
+    reelObserver.unobserve(node);
+    node.remove();
+    nodes.delete(id);
+  });
+  let anchor = el.reels.firstElementChild;
+  list.forEach((item) => {
+    const existing = nodes.get(item.id);
+    if (existing) {
+      anchor = existing.nextElementSibling;
+      return;
+    }
+    const node = reelNode(item);
+    el.reels.insertBefore(node, anchor);
+    reelObserver.observe(node);
+  });
+  if (!activeReel) {
+    const index = Math.round(el.reels.scrollTop / el.reels.clientHeight);
+    const visible = el.reels.children[index] || el.reels.firstElementChild;
+    if (visible) activateReel(visible);
+  }
 }
 
 function reelNode(item) {
@@ -460,7 +507,11 @@ function activateReel(node) {
   const item = allVideos.find((video) => video.id === node.dataset.id);
   const video = node.querySelector('video');
   video.src = sourceOf(item);
-  playWithSound(video);
+  const resume = reelResume?.id === item.id ? reelResume : null;
+  reelResume = null;
+  if (resume) video.currentTime = resume.time || 0;
+  if (resume?.paused) node.classList.add('paused');
+  else playWithSound(video);
 }
 
 // Scrolling past the last reel starts again from the first.
@@ -615,74 +666,223 @@ function expandSource(source, reel) {
   });
 }
 
+function setData(data) {
+  apiKey = String(data.driveApiKey || '').trim();
+  allVideos = [...expandSource(data.videos, false), ...expandSource(data.reels, true)]
+    .map((item, i) => {
+      const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
+      return {
+        id,
+        url: item.url,
+        title: item.title || `Video ${i + 1}`,
+        category: String(item.category || '').trim().toLowerCase(),
+        reel: Boolean(item.reel),
+        thumb: item.thumb || (!item.url && id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w640` : ''),
+      };
+    })
+    .filter((item) => item.id);
+  allImages = (data.images || [])
+    .filter((item) => item.url)
+    .map((item, i) => ({ url: item.url, title: item.title || `Image ${i + 1}` }));
+}
+
 async function start() {
   try {
     const response = await fetch('videos.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(String(response.status));
-    const data = await response.json();
-    apiKey = String(data.driveApiKey || '').trim();
-    allVideos = [...expandSource(data.videos, false), ...expandSource(data.reels, true)]
-      .map((item, i) => {
-        const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
-        return {
-          id,
-          url: item.url,
-          title: item.title || `Video ${i + 1}`,
-          category: String(item.category || '').trim().toLowerCase(),
-          reel: Boolean(item.reel),
-          thumb: item.thumb || (!item.url && id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w640` : ''),
-        };
-      })
-      .filter((item) => item.id);
-    allImages = (data.images || [])
-      .filter((item) => item.url)
-      .map((item, i) => ({ url: item.url, title: item.title || `Image ${i + 1}` }));
+    setData(await response.json());
   } catch {
-    showMessage('Could not load videos.json.', 8000);
+    if (!loadFailed) showMessage('Could not load videos. Check your internet.', 8000);
+    loadFailed = true;
     return;
   }
-  setView('home');
+  started = true;
+  showMessage('');
+  const resume = takeResumeState();
+  if (resume) restoreState(resume);
+  else setView('home');
 }
 
-/* Update and install */
+/* Silent updates */
 
-const APP_FILES = ['./', 'app.js', 'style.css', 'videos.json'];
-const UPDATE_CHECK_MS = 60000;
-const updateButton = $('update');
-const installButton = $('install');
-let runningVersion = null;
-let installPrompt = null;
+const UPDATE_CHECK_MS = 30000;
+let baseline = null;
+let checking = false;
 
-async function readVersion(cache) {
-  const texts = await Promise.all(APP_FILES.map(async (file) => {
+async function readFiles(cache) {
+  const read = async (file) => {
     const response = await fetch(file, { cache });
     if (!response.ok) throw new Error(String(response.status));
     return response.text();
-  }));
-  return texts.join('\n');
+  };
+  const [html, js, css, json] = await Promise.all(['./', 'app.js', 'style.css', 'videos.json'].map(read));
+  return { html, js, css, json };
 }
 
-async function checkForUpdate() {
-  if (document.hidden || !runningVersion || !updateButton.hidden) return;
-  try {
-    updateButton.hidden = (await readVersion('no-cache')) === runningVersion;
-  } catch {
-    // Offline or mid-deployment: try again on the next check.
+function hashText(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  return String(hash);
+}
+
+function isFullscreen() {
+  return Boolean(document.fullscreenElement || el.video.webkitDisplayingFullscreen);
+}
+
+// New content appears without touching whatever is playing.
+function applyLiveData(data) {
+  const scroll = el.content.scrollTop;
+  setData(data);
+  const fresh = current && allVideos.find((item) => item.id === current.id);
+  if (fresh && fresh.url !== current.url) {
+    const time = el.video.currentTime;
+    const wasPlaying = !el.video.paused;
+    current = null;
+    loadPlayer(fresh);
+    el.video.currentTime = time;
+    if (wasPlaying) startPlayer();
+  } else if (fresh) {
+    current = fresh;
+  } else {
+    current = null;
+    const next = allVideos.find(matches);
+    if (next) {
+      loadPlayer(next);
+      if (view === 'home' || view === 'watch') startPlayer();
+    } else {
+      el.video.removeAttribute('src');
+      el.video.load();
+    }
+  }
+  syncReels();
+  renderGrids();
+  el.content.scrollTop = scroll;
+}
+
+function applyStyles() {
+  const old = document.querySelector('link[rel="stylesheet"][href^="style.css"]');
+  if (!old) return;
+  const next = old.cloneNode();
+  next.href = `style.css?v=${Date.now()}`;
+  next.onload = () => old.remove();
+  next.onerror = () => next.remove();
+  old.after(next);
+}
+
+function captureState() {
+  const reelVideo = activeReel?.querySelector('video');
+  return {
+    view,
+    category,
+    query: el.search.value,
+    searchOpen: !el.searchRow.hidden,
+    scroll: el.content.scrollTop,
+    wantsSound,
+    currentId: current?.id,
+    time: el.video.currentTime,
+    paused: el.video.paused,
+    reel: activeReel ? { id: activeReel.dataset.id, time: reelVideo.currentTime, paused: reelVideo.paused } : null,
+  };
+}
+
+function restoreState(state) {
+  wantsSound = state.wantsSound !== false;
+  const chip = el.chips.querySelector(`[data-cat="${CSS.escape(String(state.category))}"]`);
+  if (chip) {
+    category = state.category;
+    el.chips.querySelectorAll('button').forEach((button) => {
+      button.classList.toggle('active', button === chip);
+      button.setAttribute('aria-pressed', String(button === chip));
+    });
+  }
+  if (state.searchOpen) {
+    el.searchRow.hidden = false;
+    el.searchToggle.setAttribute('aria-expanded', 'true');
+    el.search.value = state.query || '';
+    query = el.search.value.trim().toLowerCase();
+  }
+  const item = allVideos.find((video) => video.id === state.currentId);
+  if (item) {
+    loadPlayer(item);
+    el.video.currentTime = state.time || 0;
+  }
+  let next = TITLES[state.view] ? state.view : 'home';
+  if (next === 'watch' && !item) next = 'videos';
+  if (item && state.paused && (next === 'home' || next === 'watch')) {
+    holdPlayback = true;
+    el.player.classList.add('paused');
+    el.player.classList.remove('idle');
+  }
+  if (next === 'reels') reelResume = state.reel;
+  setView(next);
+  if (next === 'reels') {
+    const index = [...el.reels.children].findIndex((node) => node.dataset.id === state.reel?.id);
+    if (index > 0) el.reels.scrollTop = index * el.reels.clientHeight;
+  } else {
+    el.content.scrollTop = state.scroll || 0;
   }
 }
 
-async function watchForUpdates() {
+function takeResumeState() {
   try {
-    runningVersion = await readVersion('force-cache');
+    const state = JSON.parse(sessionStorage.getItem('kf-resume'));
+    sessionStorage.removeItem('kf-resume');
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+function reloadForUpdate(signature) {
+  // Leaving fullscreen cannot be undone by a page, so wait until the viewer exits it.
+  if (isFullscreen()) return;
+  try {
+    // Never reload twice for one version, even if a stale copy is served.
+    if (sessionStorage.getItem('kf-updated') === signature) return;
+    sessionStorage.setItem('kf-updated', signature);
+    sessionStorage.setItem('kf-resume', JSON.stringify(captureState()));
   } catch {
     return;
   }
-  checkForUpdate();
-  setInterval(checkForUpdate, UPDATE_CHECK_MS);
-  document.addEventListener('visibilitychange', checkForUpdate);
+  location.reload();
 }
 
-updateButton.addEventListener('click', () => location.reload());
+async function checkForUpdate() {
+  if (document.hidden || checking) return;
+  checking = true;
+  try {
+    if (!started) await start();
+    if (!started) return;
+    if (!baseline) baseline = await readFiles('force-cache');
+    const latest = await readFiles('no-cache');
+    if (latest.json !== baseline.json) {
+      applyLiveData(JSON.parse(latest.json));
+      baseline.json = latest.json;
+    }
+    if (latest.css !== baseline.css) {
+      applyStyles();
+      baseline.css = latest.css;
+    }
+    if (latest.html !== baseline.html || latest.js !== baseline.js) {
+      reloadForUpdate(hashText(latest.html + latest.js));
+    }
+  } catch {
+    // Offline or mid-deployment: try again on the next check.
+  } finally {
+    checking = false;
+  }
+}
+
+setInterval(checkForUpdate, UPDATE_CHECK_MS);
+document.addEventListener('visibilitychange', checkForUpdate);
+document.addEventListener('fullscreenchange', checkForUpdate);
+el.video.addEventListener('webkitendfullscreen', checkForUpdate);
+window.addEventListener('online', checkForUpdate);
+
+/* Install */
+
+const installButton = $('install');
+let installPrompt = null;
 
 function isInstalled() {
   return navigator.standalone === true
@@ -716,4 +916,4 @@ installButton.addEventListener('click', async () => {
 
 if (isIos && !isInstalled()) installButton.hidden = false;
 
-start().then(watchForUpdates);
+start().then(checkForUpdate);

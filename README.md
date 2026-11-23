@@ -32,6 +32,10 @@ Videos and reels stay separate. Reels appear only on the Reels page, and in Favo
 
 Landscape is available on the Videos pages and in fullscreen playback. Other pages ask the viewer to turn the phone upright.
 
+## Updates
+
+The open app checks for changes every 30 seconds, when it returns to the screen, and when the internet reconnects. No update message is shown. New videos and styles apply without interrupting playback. App code updates refresh the page and continue from the same video and time, waiting until fullscreen is closed.
+
 ## Login
 
 The Login page is a placeholder. Real accounts need a sign-in service. Favourites are stored on the device.
