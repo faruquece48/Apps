@@ -1,26 +1,42 @@
-# Swipe Videos
+# KidsFlix
 
-A full-screen video app. Swipe left or up for the next video, and right or down for the previous one.
+A dark, portrait-first video app for kids with Home, Image, Videos, Reels, Favourite and Login pages.
 
-## Add videos
+## Add videos and images
 
-1. In Google Drive, set each video to **Anyone with the link: Viewer**.
-2. Add its link to `videos.json`:
+Edit `videos.json`. Only `url` is required for each entry.
 
 ```json
 {
   "driveApiKey": "",
   "videos": [
-    { "title": "My first video", "link": "https://drive.google.com/file/d/FILE_ID/view?usp=sharing" }
+    {
+      "title": "Forest Friends",
+      "url": "https://your-r2-address/Videos/forest.mp4",
+      "category": "cartoon",
+      "thumb": "thumbs/forest.jpg",
+      "reel": false
+    }
+  ],
+  "images": [
+    { "title": "Happy Elephant", "url": "images/elephant.jpg" }
   ]
 }
 ```
 
-## Optional: smoother playback
+- `category` is one of `cartoon`, `rhymes`, `stories` or `learning`. Videos without one appear only under **All**.
+- `thumb` is a 1280 x 720 picture for the video card. Without it, the app uses a frame from the video.
+- `reel: true` puts a video on the Reels page. If no video has it, Reels shows every video.
 
-Without an API key, videos use Google's Drive player. Tap once to use its controls for 5 seconds, and swiping resumes afterwards.
+Google Drive links still work: use `"link"` instead of `"url"`. Without a `driveApiKey` they open in Google's player. The key is visible to site visitors, so restrict it to the Drive API and your site's address.
 
-With a Google Drive API key in `driveApiKey`, videos play in the app's own player with autoplay and tap to pause. The key is visible to site visitors, so restrict it to the Drive API and your site's address in Google Cloud Console.
+## Screen rotation
+
+Landscape is available on the Videos pages and in fullscreen playback. Other pages ask the viewer to turn the phone upright.
+
+## Login
+
+The Login page is a placeholder. Real accounts need a sign-in service. Favourites are stored on the device.
 
 ## Run locally
 

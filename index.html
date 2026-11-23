@@ -3,65 +3,156 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#070b18">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>Swipe Videos</title>
+  <meta name="apple-mobile-web-app-title" content="KidsFlix">
+  <title>KidsFlix</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <main id="stage" aria-label="Video player"></main>
-  <div id="gestures" aria-hidden="true"></div>
+<body data-view="home">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="logo-fill" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#b65cff"/>
+        <stop offset="1" stop-color="#7c3aed"/>
+      </linearGradient>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5s-8.5-5.2-8.5-11.2A4.8 4.8 0 0 1 12 6.4a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11.2-8.5 11.2z"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+    </defs>
+  </svg>
 
-  <div id="actions">
-    <button id="update" type="button" hidden>Update available</button>
-    <button id="install" type="button" hidden>Install app</button>
-  </div>
+  <div id="app">
+    <header id="top">
+      <svg class="logo" viewBox="0 0 48 48" role="img" aria-label="KidsFlix">
+        <path d="M9 9.5c0-4 4.3-6.500 7.800-4.500l24 14c3.400 2 3.400 7 0 9l-24 14C13.300 44 9 41.500 9 37.500z" fill="url(#logo-fill)"/>
+        <path d="M19 17.500v13l11-6.500z" fill="#fff" opacity=".9"/>
+      </svg>
+      <h1 id="page-title">Home</h1>
+      <button id="search-toggle" class="icon-btn" type="button" aria-label="Search" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7.500"/><path d="M16.800 16.800 21 21"/></svg>
+      </button>
+    </header>
 
-  <aside id="rail" hidden>
-    <button id="like" type="button" aria-pressed="false">
-      <svg viewBox="0 0 24 24"><path d="M7 10v11H3V10zm0 0 4-8c1.7 0 3 1.3 3 3v3h5.5c1.4 0 2.4 1.3 2.1 2.6l-1.8 8c-.2.8-1 1.4-1.9 1.4H7"/></svg>
-      <span>Like</span>
-    </button>
-    <button id="save" type="button" aria-pressed="false">
-      <svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>
-      <span>Save</span>
-    </button>
-    <button id="share" type="button">
-      <svg viewBox="0 0 24 24"><path d="M14 5l7 7-7 7v-4c-5 0-8 1.5-11 5 1-6 4-10 11-11z"/></svg>
-      <span>Share</span>
-    </button>
-    <button id="sound" type="button" hidden>
-      <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7"/></svg>
-      <span id="sound-label">Mute</span>
-    </button>
-  </aside>
-
-  <div id="info" hidden>
-    <div id="channel" hidden>
-      <img src="icon-192.png" alt="">
-      <strong id="channel-name"></strong>
-      <span id="position"></span>
+    <div id="search-row" hidden>
+      <input id="search" type="search" placeholder="Search videos" aria-label="Search videos" autocomplete="off">
     </div>
-    <h1 id="title"></h1>
+
+    <div id="chips" role="group" aria-label="Categories">
+      <button type="button" data-cat="all" class="active">All</button>
+      <button type="button" data-cat="cartoon">Cartoon</button>
+      <button type="button" data-cat="rhymes">Rhymes</button>
+      <button type="button" data-cat="stories">Stories</button>
+      <button type="button" data-cat="learning">Learning</button>
+    </div>
+
+    <main id="content">
+      <section id="view-home" class="view">
+        <div id="home-slot" class="player-slot">
+          <div id="player" class="idle">
+            <video id="p-video" playsinline loop preload="auto"></video>
+            <button id="p-fav" class="round fav" type="button" aria-label="Add to Favourite" aria-pressed="false">
+              <svg><use href="#i-heart"/></svg>
+            </button>
+            <button id="p-sound" type="button" hidden>Tap for sound</button>
+            <button id="p-toggle" class="round fade" type="button" aria-label="Pause">
+              <svg class="when-playing" viewBox="0 0 24 24"><rect x="6.500" y="4.500" width="3.800" height="15" rx="1.400"/><rect x="13.700" y="4.500" width="3.800" height="15" rx="1.400"/></svg>
+              <svg class="when-paused"><use href="#i-play"/></svg>
+            </button>
+            <div id="p-bar" class="fade">
+              <span id="p-cur">0:00</span>
+              <input id="p-seek" type="range" min="0" max="1000" value="0" aria-label="Seek">
+              <span id="p-dur">0:00</span>
+              <button id="p-full" class="round" type="button" aria-label="Fullscreen">
+                <svg viewBox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="section-head">
+          <h2>Recommended for You</h2>
+          <button id="see-all" type="button">See All
+            <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+          </button>
+        </div>
+        <div id="home-grid" class="grid"></div>
+      </section>
+
+      <section id="view-image" class="view" hidden><div id="image-grid" class="grid"></div></section>
+      <section id="view-videos" class="view" hidden><div id="videos-grid" class="grid"></div></section>
+      <section id="view-reels" class="view" hidden></section>
+      <section id="view-favourite" class="view" hidden><div id="favourite-grid" class="grid"></div></section>
+
+      <section id="view-login" class="view" hidden>
+        <div class="login-card">
+          <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M9 9.500c0-4 4.300-6.500 7.800-4.500l24 14c3.400 2 3.400 7 0 9l-24 14C13.300 44 9 41.500 9 37.500z" fill="url(#logo-fill)"/>
+            <path d="M19 17.500v13l11-6.500z" fill="#fff" opacity=".9"/>
+          </svg>
+          <h2>KidsFlix</h2>
+          <p>Login is coming soon. Your favourites are saved on this device.</p>
+          <button id="install" class="primary" type="button" hidden>Install app</button>
+        </div>
+      </section>
+
+      <section id="view-watch" class="view" hidden>
+        <button id="back" type="button">
+          <svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>
+          Back
+        </button>
+        <div id="watch-slot" class="player-slot"></div>
+        <h2 id="watch-title"></h2>
+        <div id="watch-grid" class="grid"></div>
+      </section>
+    </main>
+
+    <nav id="tabs" aria-label="Main">
+      <button type="button" data-view="home" class="active">
+        <svg viewBox="0 0 24 24"><path d="M3.500 11 12 3.500 20.500 11v8a1.500 1.500 0 0 1-1.500 1.500h-4v-6H9v6H5A1.500 1.500 0 0 1 3.500 19z"/></svg>
+        <span>Home</span>
+      </button>
+      <button type="button" data-view="image">
+        <svg viewBox="0 0 24 24"><rect x="3.500" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9.500" r="1.600"/><path d="m4 17 5-4.500 3.500 3 3-2.500 5 4"/></svg>
+        <span>Image</span>
+      </button>
+      <button type="button" data-view="videos">
+        <svg viewBox="0 0 24 24"><path d="M7 4.500v15l12-7.500z"/></svg>
+        <span>Videos</span>
+      </button>
+      <button type="button" data-view="reels">
+        <svg viewBox="0 0 24 24"><rect x="3.500" y="4" width="17" height="16" rx="3"/><path d="M3.500 9h17M8.500 4l2 5M14.500 4l2 5M10.500 12.200v5l4.300-2.500z"/></svg>
+        <span>Reels</span>
+      </button>
+      <button type="button" data-view="favourite">
+        <svg><use href="#i-heart"/></svg>
+        <span>Favourite</span>
+      </button>
+      <button type="button" data-view="login">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3.200"/><path d="M6 18.500c1.300-2.300 3.400-3.500 6-3.500s4.700 1.200 6 3.500"/></svg>
+        <span>Login</span>
+      </button>
+    </nav>
   </div>
 
-  <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek" hidden>
-
-  <nav id="tabs" aria-label="Main">
-    <button id="tab-home" type="button" class="active">
-      <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10h-6v-6H9v6H3z"/></svg>
-      <span>Home</span>
+  <div id="lightbox" hidden>
+    <img id="lightbox-img" alt="">
+    <button id="lightbox-close" class="round" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
     </button>
-    <button id="tab-saved" type="button">
-      <svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>
-      <span>Saved</span>
-    </button>
-  </nav>
+  </div>
 
+  <div id="rotate" role="alert">
+    <svg viewBox="0 0 24 24"><rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/></svg>
+    <p>Please turn your phone upright.</p>
+  </div>
+
+  <button id="update" type="button" hidden>Update available</button>
   <div id="message" role="status" hidden></div>
   <script src="app.js"></script>
 </body>

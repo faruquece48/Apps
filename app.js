@@ -1,42 +1,55 @@
 'use strict';
 
-const SWIPE_DISTANCE = 50;
-const TAP_DISTANCE = 10;
-const DRIVE_CONTROLS_MS = 5000;
-const SLIDE_MS = 280;
+const CONTROLS_MS = 3000;
+const TITLES = { home: 'Home', image: 'Images', videos: 'Videos', reels: 'Reels', favourite: 'Favourite', login: 'Login', watch: 'Videos' };
+const LANDSCAPE_VIEWS = new Set(['videos', 'watch']);
 
+const $ = (id) => document.getElementById(id);
 const el = {
-  stage: document.getElementById('stage'),
-  gestures: document.getElementById('gestures'),
-  info: document.getElementById('info'),
-  title: document.getElementById('title'),
-  position: document.getElementById('position'),
-  seek: document.getElementById('seek'),
-  sound: document.getElementById('sound'),
-  message: document.getElementById('message'),
-  rail: document.getElementById('rail'),
-  like: document.getElementById('like'),
-  save: document.getElementById('save'),
-  share: document.getElementById('share'),
-  soundLabel: document.getElementById('sound-label'),
-  channel: document.getElementById('channel-name'),
-  tabHome: document.getElementById('tab-home'),
-  tabSaved: document.getElementById('tab-saved'),
+  title: $('page-title'),
+  searchToggle: $('search-toggle'),
+  searchRow: $('search-row'),
+  search: $('search'),
+  chips: $('chips'),
+  content: $('content'),
+  tabs: $('tabs'),
+  message: $('message'),
+  player: $('player'),
+  video: $('p-video'),
+  fav: $('p-fav'),
+  sound: $('p-sound'),
+  toggle: $('p-toggle'),
+  seek: $('p-seek'),
+  cur: $('p-cur'),
+  dur: $('p-dur'),
+  full: $('p-full'),
+  homeSlot: $('home-slot'),
+  watchSlot: $('watch-slot'),
+  homeGrid: $('home-grid'),
+  imageGrid: $('image-grid'),
+  videosGrid: $('videos-grid'),
+  favouriteGrid: $('favourite-grid'),
+  watchGrid: $('watch-grid'),
+  watchTitle: $('watch-title'),
+  reels: $('view-reels'),
+  lightbox: $('lightbox'),
+  lightboxImg: $('lightbox-img'),
 };
 
-const liked = readSet('liked');
-const saved = readSet('saved');
+const favourites = readSet('saved');
+const durations = new Map();
 let allVideos = [];
-let channelName = 'Swipe Videos';
-let messageTimer = 0;
-let videos = [];
+let allImages = [];
 let apiKey = '';
-let index = 0;
-let slide = null;
+let view = 'home';
+let category = 'all';
+let query = '';
+let current = null;
 let wantsSound = true;
-let drag = null;
-let passthroughTimer = 0;
-let lastWheel = 0;
+let controlsTimer = 0;
+let messageTimer = 0;
+let activeReel = null;
+let reelObserver = null;
 
 function driveId(link) {
   const value = String(link || '').trim();
@@ -61,278 +74,498 @@ function writeSet(name, set) {
   }
 }
 
-function showMessage(text) {
+function showMessage(text, ms = 3000) {
   clearTimeout(messageTimer);
   el.message.textContent = text;
   el.message.hidden = !text;
+  if (text) messageTimer = setTimeout(() => showMessage(''), ms);
 }
 
-function flashMessage(text) {
-  showMessage(text);
-  messageTimer = setTimeout(() => showMessage(''), 3000);
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) return '0:00';
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
-function syncSound() {
-  el.sound.hidden = !slide?.video;
-  el.soundLabel.textContent = slide?.video?.muted ? 'Sound' : 'Mute';
+function sourceOf(item) {
+  if (item.url) return item.url;
+  if (apiKey) return `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&key=${encodeURIComponent(apiKey)}`;
+  return '';
 }
 
-function syncRail() {
-  const id = videos[index]?.id;
-  el.like.setAttribute('aria-pressed', String(liked.has(id)));
-  el.save.setAttribute('aria-pressed', String(saved.has(id)));
+function matches(item) {
+  return (category === 'all' || item.category === category)
+    && (!query || item.title.toLowerCase().includes(query));
 }
 
-function mountIframe(target, id) {
-  target.replaceChildren();
-  target.style.background = `#000 url("https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1000") center / contain no-repeat`;
-  const frame = document.createElement('iframe');
-  frame.src = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
-  frame.allow = 'autoplay; fullscreen; encrypted-media';
-  frame.allowFullscreen = true;
-  frame.title = 'Video';
-  target.append(frame);
-  if (target === slide?.node) {
-    slide.video = null;
-    el.seek.hidden = true;
-    el.sound.hidden = true;
+function toggleFavourite(id) {
+  if (favourites.has(id)) favourites.delete(id);
+  else favourites.add(id);
+  writeSet('saved', favourites);
+  syncFavourite();
+  document.querySelectorAll(`.reel[data-id="${CSS.escape(id)}"] .fav`).forEach((button) => {
+    button.setAttribute('aria-pressed', String(favourites.has(id)));
+  });
+  if (view === 'favourite') renderGrids();
+}
+
+function syncFavourite() {
+  const on = Boolean(current && favourites.has(current.id));
+  el.fav.setAttribute('aria-pressed', String(on));
+  el.fav.setAttribute('aria-label', on ? 'Remove from Favourite' : 'Add to Favourite');
+}
+
+/* Cards */
+
+const cardObserver = 'IntersectionObserver' in window
+  ? new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      cardObserver.unobserve(entry.target);
+      fillCard(entry.target);
+    });
+  }, { rootMargin: '200px' })
+  : null;
+
+function fillCard(card) {
+  const item = allVideos.find((video) => video.id === card.dataset.id);
+  const src = item && sourceOf(item);
+  if (!src) return;
+  const known = durations.get(item.id);
+  if (item.thumb && known) return;
+  const probe = document.createElement('video');
+  probe.muted = true;
+  probe.playsInline = true;
+  probe.preload = 'metadata';
+  probe.src = `${src}#t=0.5`;
+  probe.addEventListener('loadedmetadata', () => {
+    durations.set(item.id, probe.duration);
+    card.querySelector('.dur').textContent = formatTime(probe.duration);
+  }, { once: true });
+  if (!item.thumb) card.prepend(probe);
+}
+
+function videoCard(item) {
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'card';
+  card.dataset.id = item.id;
+  card.setAttribute('aria-label', `Play ${item.title}`);
+  if (item.thumb) {
+    const image = document.createElement('img');
+    image.src = item.thumb;
+    image.alt = '';
+    image.loading = 'lazy';
+    card.append(image);
+  }
+  const play = document.createElement('span');
+  play.className = 'play';
+  play.innerHTML = '<svg><use href="#i-play"/></svg>';
+  const duration = document.createElement('span');
+  duration.className = 'dur';
+  if (durations.has(item.id)) duration.textContent = formatTime(durations.get(item.id));
+  card.append(play, duration);
+  card.addEventListener('click', () => openVideo(item));
+  if (cardObserver) cardObserver.observe(card);
+  else fillCard(card);
+  return card;
+}
+
+function fillGrid(grid, list, emptyText) {
+  grid.replaceChildren(...(list.length ? list.map(videoCard) : [emptyNode(emptyText)]));
+}
+
+function emptyNode(text) {
+  const node = document.createElement('p');
+  node.className = 'empty';
+  node.textContent = text;
+  return node;
+}
+
+function renderGrids() {
+  const list = allVideos.filter(matches);
+  const noneText = query ? 'No videos found.' : 'No videos in this category yet.';
+  if (view === 'home') {
+    const rest = list.filter((item) => item.id !== current?.id);
+    fillGrid(el.homeGrid, rest, list.length ? 'More videos coming soon.' : noneText);
+  } else if (view === 'videos') {
+    fillGrid(el.videosGrid, list, noneText);
+  } else if (view === 'favourite') {
+    fillGrid(el.favouriteGrid, list.filter((item) => favourites.has(item.id)),
+      query ? 'No videos found.' : 'Tap the heart on a video to save it here.');
+  } else if (view === 'watch') {
+    fillGrid(el.watchGrid, allVideos.filter((item) => item.id !== current?.id), 'More videos coming soon.');
+  } else if (view === 'image') {
+    renderImages();
   }
 }
 
-function mountVideo(target, item) {
-  const { id } = item;
-  const video = document.createElement('video');
-  video.src = item.url || `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&key=${encodeURIComponent(apiKey)}`;
-  video.playsInline = true;
-  video.loop = true;
-  video.preload = 'auto';
-  video.addEventListener('error', () => {
-    if (!item.url) mountIframe(target, id);
-    else if (slide?.video === video) showMessage('This video could not be played.');
-  }, { once: true });
-  video.addEventListener('loadedmetadata', () => {
-    video.classList.toggle('wide', video.videoWidth > video.videoHeight);
-  });
-  video.addEventListener('timeupdate', () => {
-    if (slide?.video === video && video.duration) {
-      el.seek.value = Math.round((video.currentTime / video.duration) * 1000);
-    }
-  });
-  target.append(video);
-  return video;
+function renderImages() {
+  const list = allImages.filter((item) => !query || item.title.toLowerCase().includes(query));
+  if (!list.length) {
+    el.imageGrid.replaceChildren(emptyNode(query ? 'No images found.' : 'No images yet.'));
+    return;
+  }
+  el.imageGrid.replaceChildren(...list.map((item) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'card photo';
+    card.setAttribute('aria-label', `Open ${item.title}`);
+    const image = document.createElement('img');
+    image.src = item.url;
+    image.alt = item.title;
+    image.loading = 'lazy';
+    card.append(image);
+    card.addEventListener('click', () => {
+      el.lightboxImg.src = item.url;
+      el.lightboxImg.alt = item.title;
+      el.lightbox.hidden = false;
+    });
+    return card;
+  }));
 }
 
-async function play(video) {
+/* Main player */
+
+function loadPlayer(item) {
+  if (current?.id === item.id && (el.video.getAttribute('src') || el.player.querySelector('iframe'))) {
+    syncFavourite();
+    return;
+  }
+  current = item;
+  el.player.querySelector('iframe')?.remove();
+  el.seek.value = 0;
+  el.seek.style.setProperty('--p', '0%');
+  el.cur.textContent = '0:00';
+  el.dur.textContent = '0:00';
+  el.video.poster = item.thumb || '';
+  const src = sourceOf(item);
+  el.player.classList.toggle('embed', !src);
+  el.video.hidden = !src;
+  if (src) {
+    el.video.src = src;
+  } else {
+    el.video.removeAttribute('src');
+    el.video.load();
+    const frame = document.createElement('iframe');
+    frame.src = `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/preview`;
+    frame.allow = 'autoplay; fullscreen; encrypted-media';
+    frame.allowFullscreen = true;
+    frame.title = item.title;
+    el.player.prepend(frame);
+  }
+  syncFavourite();
+}
+
+async function playWithSound(video, onDone) {
   video.muted = !wantsSound;
   try {
     await video.play();
-  } catch {
-    if (slide?.video !== video) return;
-    video.muted = true;
-    await video.play().catch(() => {});
-  }
-  if (slide?.video === video) syncSound();
-}
-
-function setPassthrough(on) {
-  clearTimeout(passthroughTimer);
-  el.gestures.classList.toggle('passthrough', on);
-  document.body.classList.toggle('drive-controls', on);
-  if (on) passthroughTimer = setTimeout(() => setPassthrough(false), DRIVE_CONTROLS_MS);
-}
-
-function show(nextIndex, dir = { x: 0, y: 0 }) {
-  setPassthrough(false);
-  index = (nextIndex + videos.length) % videos.length;
-  const item = videos[index];
-  const node = document.createElement('section');
-  node.className = 'slide dragging';
-  node.style.transform = `translate(${-dir.x * 100}%, ${-dir.y * 100}%)`;
-
-  const old = slide;
-  slide = { node, video: null };
-  el.seek.value = 0;
-  showMessage('');
-  const native = Boolean(item.url || apiKey);
-  el.seek.hidden = !native;
-  el.sound.hidden = !native;
-  if (native) slide.video = mountVideo(node, item);
-  else mountIframe(node, item.id);
-  el.stage.append(node);
-
-  el.title.textContent = item.title;
-  el.position.textContent = `${index + 1} / ${videos.length}`;
-  el.channel.textContent = item.channel || channelName;
-  el.info.hidden = false;
-  el.rail.hidden = false;
-  syncRail();
-
-  node.getBoundingClientRect();
-  node.classList.remove('dragging');
-  node.style.transform = 'translate(0, 0)';
-
-  if (old) {
-    old.video?.pause();
-    old.node.classList.remove('dragging');
-    old.node.style.transform = `translate(${dir.x * 100}%, ${dir.y * 100}%)`;
-    setTimeout(() => {
-      old.node.remove();
-      if (old.video) {
-        // Stop the download of the video that was swiped away.
-        old.video.removeAttribute('src');
-        old.video.load();
-      }
-    }, SLIDE_MS + 40);
-  }
-  if (slide.video) play(slide.video);
-}
-
-function move(step, dir) {
-  if (videos.length < 2) {
-    if (slide) slide.node.style.transform = 'translate(0, 0)';
-    return;
-  }
-  show(index + step, dir);
-}
-
-function swipe(dx, dy) {
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    move(dx < 0 ? 1 : -1, { x: dx < 0 ? -1 : 1, y: 0 });
-  } else {
-    move(dy < 0 ? 1 : -1, { x: 0, y: dy < 0 ? -1 : 1 });
-  }
-}
-
-function tap() {
-  if (!slide) return;
-  if (!slide.video) {
-    setPassthrough(true);
-    return;
-  }
-  if (slide.video.muted && wantsSound) {
-    slide.video.muted = false;
-    syncSound();
-    return;
-  }
-  if (slide.video.paused) play(slide.video);
-  else slide.video.pause();
-}
-
-function setTab(tab) {
-  el.tabHome.classList.toggle('active', tab === 'home');
-  el.tabSaved.classList.toggle('active', tab === 'saved');
-  videos = tab === 'saved' ? allVideos.filter((item) => saved.has(item.id)) : allVideos;
-  showMessage('');
-  if (videos.length) {
-    show(0);
-    return;
-  }
-  setPassthrough(false);
-  slide?.video?.pause();
-  slide?.node.remove();
-  slide = null;
-  el.info.hidden = true;
-  el.rail.hidden = true;
-  el.seek.hidden = true;
-  showMessage(tab === 'saved' ? 'No saved videos yet.' : 'No videos yet.');
-}
-
-function toggleIn(set, name) {
-  const id = videos[index]?.id;
-  if (!id) return;
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
-  writeSet(name, set);
-  syncRail();
-}
-
-el.like.addEventListener('click', () => toggleIn(liked, 'liked'));
-el.save.addEventListener('click', () => toggleIn(saved, 'saved'));
-el.tabHome.addEventListener('click', () => setTab('home'));
-el.tabSaved.addEventListener('click', () => setTab('saved'));
-
-el.share.addEventListener('click', async () => {
-  const item = videos[index];
-  if (!item) return;
-  const url = `${location.origin}${location.pathname}#${item.id}`;
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: item.title, url });
-    } else {
-      await navigator.clipboard.writeText(url);
-      flashMessage('Link copied.');
-    }
   } catch (error) {
-    if (error.name !== 'AbortError') flashMessage('Could not share this video.');
+    if (error.name !== 'AbortError') {
+      // Browsers block autoplay with sound until the first tap.
+      video.muted = true;
+      await video.play().catch(() => {});
+    }
   }
-});
-
-el.gestures.addEventListener('pointerdown', (event) => {
-  if (!slide) return;
-  drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
-  el.gestures.setPointerCapture(event.pointerId);
-  slide.node.classList.add('dragging');
-});
-
-el.gestures.addEventListener('pointermove', (event) => {
-  if (!drag || drag.id !== event.pointerId) return;
-  const dx = event.clientX - drag.x;
-  const dy = event.clientY - drag.y;
-  const horizontal = Math.abs(dx) >= Math.abs(dy);
-  slide.node.style.transform = `translate(${horizontal ? dx : 0}px, ${horizontal ? 0 : dy}px)`;
-});
-
-function endDrag(event, cancelled) {
-  if (!drag || drag.id !== event.pointerId) return;
-  const dx = event.clientX - drag.x;
-  const dy = event.clientY - drag.y;
-  drag = null;
-  slide.node.classList.remove('dragging');
-  const distance = Math.max(Math.abs(dx), Math.abs(dy));
-  if (!cancelled && distance >= SWIPE_DISTANCE && videos.length > 1) {
-    swipe(dx, dy);
-    return;
-  }
-  slide.node.style.transform = 'translate(0, 0)';
-  if (!cancelled && distance < TAP_DISTANCE) tap();
+  onDone?.();
 }
 
-el.gestures.addEventListener('pointerup', (event) => endDrag(event, false));
-el.gestures.addEventListener('pointercancel', (event) => endDrag(event, true));
+function startPlayer() {
+  if (!current || !el.video.getAttribute('src')) return;
+  playWithSound(el.video, syncSound);
+}
 
-window.addEventListener('keydown', (event) => {
-  const moves = {
-    ArrowRight: [1, { x: -1, y: 0 }],
-    ArrowDown: [1, { x: 0, y: -1 }],
-    ArrowLeft: [-1, { x: 1, y: 0 }],
-    ArrowUp: [-1, { x: 0, y: 1 }],
-  };
-  if (moves[event.key] && event.target !== el.seek) {
-    event.preventDefault();
-    move(...moves[event.key]);
-  } else if (event.key === ' ' && event.target !== el.sound) {
-    event.preventDefault();
-    tap();
+function syncSound() {
+  el.sound.hidden = !(el.video.muted && wantsSound);
+}
+
+function revealControls() {
+  clearTimeout(controlsTimer);
+  el.player.classList.remove('idle');
+  if (!el.video.paused) {
+    controlsTimer = setTimeout(() => el.player.classList.add('idle'), CONTROLS_MS);
+  }
+}
+
+function openVideo(item) {
+  if (view === 'home') {
+    loadPlayer(item);
+    el.content.scrollTo({ top: 0, behavior: 'smooth' });
+    renderGrids();
+    startPlayer();
+    revealControls();
+    return;
+  }
+  loadPlayer(item);
+  setView('watch');
+}
+
+el.video.addEventListener('click', () => {
+  if (el.video.muted && wantsSound) {
+    el.video.muted = false;
+    syncSound();
+  }
+  if (el.player.classList.contains('idle')) {
+    revealControls();
+  } else if (!el.video.paused) {
+    clearTimeout(controlsTimer);
+    el.player.classList.add('idle');
   }
 });
 
-window.addEventListener('wheel', (event) => {
-  const now = Date.now();
-  if (now - lastWheel < 600 || Math.abs(event.deltaY) < 20) return;
-  lastWheel = now;
-  move(event.deltaY > 0 ? 1 : -1, { x: 0, y: event.deltaY > 0 ? -1 : 1 });
-}, { passive: true });
+el.video.addEventListener('play', () => {
+  el.player.classList.remove('paused');
+  el.toggle.setAttribute('aria-label', 'Pause');
+  revealControls();
+});
+
+el.video.addEventListener('pause', () => {
+  el.player.classList.add('paused');
+  el.toggle.setAttribute('aria-label', 'Play');
+  revealControls();
+});
+
+el.video.addEventListener('loadedmetadata', () => {
+  el.dur.textContent = formatTime(el.video.duration);
+  if (current) durations.set(current.id, el.video.duration);
+});
+
+el.video.addEventListener('timeupdate', () => {
+  if (!el.video.duration) return;
+  const ratio = el.video.currentTime / el.video.duration;
+  el.seek.value = Math.round(ratio * 1000);
+  el.seek.style.setProperty('--p', `${ratio * 100}%`);
+  el.cur.textContent = formatTime(el.video.currentTime);
+});
+
+el.video.addEventListener('error', () => {
+  if (el.video.getAttribute('src')) showMessage('This video could not be played.');
+});
 
 el.seek.addEventListener('input', () => {
-  const video = slide?.video;
-  if (video?.duration) video.currentTime = (el.seek.value / 1000) * video.duration;
+  if (el.video.duration) el.video.currentTime = (el.seek.value / 1000) * el.video.duration;
+  el.seek.style.setProperty('--p', `${el.seek.value / 10}%`);
+  revealControls();
+});
+
+el.toggle.addEventListener('click', () => {
+  if (el.video.paused) startPlayer();
+  else el.video.pause();
 });
 
 el.sound.addEventListener('click', () => {
-  if (!slide?.video) return;
-  wantsSound = slide.video.muted;
-  slide.video.muted = !wantsSound;
+  el.video.muted = false;
   syncSound();
+});
+
+el.fav.addEventListener('click', () => {
+  if (current) toggleFavourite(current.id);
+});
+
+el.full.addEventListener('click', async () => {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen().catch(() => {});
+  } else if (el.player.requestFullscreen) {
+    await el.player.requestFullscreen().catch(() => {});
+  } else if (el.video.webkitEnterFullscreen) {
+    el.video.webkitEnterFullscreen();
+  }
+});
+
+document.addEventListener('fullscreenchange', applyOrientation);
+
+function applyOrientation() {
+  const orientation = screen.orientation;
+  if (!orientation?.lock) return;
+  if (document.fullscreenElement) {
+    if (el.video.videoWidth >= el.video.videoHeight) orientation.lock('landscape').catch(() => {});
+  } else if (LANDSCAPE_VIEWS.has(view)) {
+    orientation.unlock?.();
+  } else {
+    orientation.lock('portrait').catch(() => {});
+  }
+}
+
+/* Reels */
+
+function buildReels() {
+  reelObserver?.disconnect();
+  activeReel = null;
+  const tagged = allVideos.filter((item) => item.reel && sourceOf(item));
+  const list = tagged.length ? tagged : allVideos.filter(sourceOf);
+  if (!list.length) {
+    el.reels.replaceChildren(emptyNode('No reels yet.'));
+    return;
+  }
+  el.reels.replaceChildren(...list.map(reelNode));
+  reelObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) activateReel(entry.target);
+    });
+  }, { root: el.reels, threshold: 0.6 });
+  el.reels.querySelectorAll('.reel').forEach((node) => reelObserver.observe(node));
+}
+
+function reelNode(item) {
+  const node = document.createElement('article');
+  node.className = 'reel';
+  node.dataset.id = item.id;
+
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.loop = true;
+  video.preload = 'none';
+  if (item.thumb) video.poster = item.thumb;
+  video.addEventListener('loadedmetadata', () => {
+    video.classList.toggle('wide', video.videoWidth > video.videoHeight);
+  });
+  video.addEventListener('play', () => node.classList.remove('paused'));
+  video.addEventListener('pause', () => node.classList.add('paused'));
+  video.addEventListener('click', () => {
+    if (video.muted && wantsSound) video.muted = false;
+    else if (video.paused) playWithSound(video);
+    else video.pause();
+  });
+
+  const icon = document.createElement('span');
+  icon.className = 'round paused-icon';
+  icon.innerHTML = '<svg><use href="#i-play"/></svg>';
+
+  const fav = document.createElement('button');
+  fav.type = 'button';
+  fav.className = 'round fav';
+  fav.setAttribute('aria-label', 'Favourite');
+  fav.setAttribute('aria-pressed', String(favourites.has(item.id)));
+  fav.innerHTML = '<svg><use href="#i-heart"/></svg>';
+  fav.addEventListener('click', () => toggleFavourite(item.id));
+
+  const title = document.createElement('h3');
+  title.textContent = item.title;
+
+  node.append(video, icon, fav, title);
+  return node;
+}
+
+function activateReel(node) {
+  if (view !== 'reels' || activeReel === node) return;
+  stopReel();
+  activeReel = node;
+  const item = allVideos.find((video) => video.id === node.dataset.id);
+  const video = node.querySelector('video');
+  video.src = sourceOf(item);
+  playWithSound(video);
+}
+
+function stopReel() {
+  if (!activeReel) return;
+  const video = activeReel.querySelector('video');
+  video.pause();
+  // Stop the download of the reel that was swiped away.
+  video.removeAttribute('src');
+  video.load();
+  activeReel.classList.remove('paused');
+  activeReel = null;
+}
+
+/* Navigation */
+
+function setView(next) {
+  const previous = view;
+  if (previous === 'reels' && next !== 'reels') stopReel();
+  view = next;
+  document.body.dataset.view = next;
+  el.title.textContent = TITLES[next];
+  document.querySelectorAll('#content > .view').forEach((section) => {
+    section.hidden = section.id !== `view-${next}`;
+  });
+  const activeTab = next === 'watch' ? 'videos' : next;
+  el.tabs.querySelectorAll('button').forEach((button) => {
+    const on = button.dataset.view === activeTab;
+    button.classList.toggle('active', on);
+    if (on) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  el.content.scrollTop = 0;
+
+  if (next === 'home' || next === 'watch') {
+    const slot = next === 'home' ? el.homeSlot : el.watchSlot;
+    if (el.player.parentElement !== slot) slot.append(el.player);
+    if (next === 'home' && !current) {
+      const first = allVideos.find(matches) || allVideos[0];
+      if (first) loadPlayer(first);
+    }
+    if (next === 'watch') el.watchTitle.textContent = current?.title || '';
+    startPlayer();
+  } else {
+    el.video.pause();
+  }
+
+  if (next === 'reels') buildReels();
+  renderGrids();
+  applyOrientation();
+}
+
+el.tabs.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-view]');
+  if (button) setView(button.dataset.view);
+});
+
+$('see-all').addEventListener('click', () => setView('videos'));
+$('back').addEventListener('click', () => setView('videos'));
+
+el.chips.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-cat]');
+  if (!button) return;
+  category = button.dataset.cat;
+  el.chips.querySelectorAll('button').forEach((chip) => {
+    const on = chip === button;
+    chip.classList.toggle('active', on);
+    chip.setAttribute('aria-pressed', String(on));
+  });
+  if (view === 'home') {
+    const first = allVideos.find(matches);
+    if (first && !(current && matches(current))) {
+      loadPlayer(first);
+      startPlayer();
+    }
+  }
+  renderGrids();
+});
+
+el.searchToggle.addEventListener('click', () => {
+  const open = el.searchRow.hidden;
+  el.searchRow.hidden = !open;
+  el.searchToggle.setAttribute('aria-expanded', String(open));
+  if (open) {
+    el.search.focus();
+  } else {
+    el.search.value = '';
+    query = '';
+    renderGrids();
+  }
+});
+
+el.search.addEventListener('input', () => {
+  query = el.search.value.trim().toLowerCase();
+  if (view === 'reels' || view === 'login' || view === 'watch') setView('videos');
+  else renderGrids();
+});
+
+function closeLightbox() {
+  el.lightbox.hidden = true;
+  el.lightboxImg.removeAttribute('src');
+}
+
+$('lightbox-close').addEventListener('click', closeLightbox);
+el.lightbox.addEventListener('click', (event) => {
+  if (event.target === el.lightbox) closeLightbox();
+});
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el.lightbox.hidden) closeLightbox();
 });
 
 async function start() {
@@ -341,31 +574,35 @@ async function start() {
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
     apiKey = String(data.driveApiKey || '').trim();
-    channelName = data.channel || channelName;
     allVideos = (data.videos || [])
-      .map((item, i) => ({
-        id: item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link),
-        url: item.url,
-        title: item.title || `Video ${i + 1}`,
-        channel: item.channel,
-      }))
+      .map((item, i) => {
+        const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
+        return {
+          id,
+          url: item.url,
+          title: item.title || `Video ${i + 1}`,
+          category: String(item.category || '').trim().toLowerCase(),
+          reel: Boolean(item.reel),
+          thumb: item.thumb || (!item.url && id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w640` : ''),
+        };
+      })
       .filter((item) => item.id);
-    videos = allVideos;
+    allImages = (data.images || [])
+      .filter((item) => item.url)
+      .map((item, i) => ({ url: item.url, title: item.title || `Image ${i + 1}` }));
   } catch {
-    showMessage('Could not load videos.json.');
+    showMessage('Could not load videos.json.', 8000);
     return;
   }
-  if (!videos.length) {
-    showMessage('No videos yet. Add Google Drive video links to videos.json.');
-    return;
-  }
-  show(Math.max(videos.findIndex((item) => item.id === location.hash.slice(1)), 0));
+  setView('home');
 }
+
+/* Update and install */
 
 const APP_FILES = ['./', 'app.js', 'style.css', 'videos.json'];
 const UPDATE_CHECK_MS = 60000;
-const updateButton = document.getElementById('update');
-const installButton = document.getElementById('install');
+const updateButton = $('update');
+const installButton = $('install');
 let runningVersion = null;
 let installPrompt = null;
 
@@ -426,8 +663,7 @@ installButton.addEventListener('click', async () => {
     installPrompt = null;
     installButton.hidden = true;
   } else {
-    showMessage('In Safari, tap Share, then Add to Home Screen.');
-    setTimeout(() => showMessage(''), 6000);
+    showMessage('In Safari, tap Share, then Add to Home Screen.', 6000);
   }
 });
 
