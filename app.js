@@ -14,8 +14,21 @@ const el = {
   seek: document.getElementById('seek'),
   sound: document.getElementById('sound'),
   message: document.getElementById('message'),
+  rail: document.getElementById('rail'),
+  like: document.getElementById('like'),
+  save: document.getElementById('save'),
+  share: document.getElementById('share'),
+  soundLabel: document.getElementById('sound-label'),
+  channel: document.getElementById('channel-name'),
+  tabHome: document.getElementById('tab-home'),
+  tabSaved: document.getElementById('tab-saved'),
 };
 
+const liked = readSet('liked');
+const saved = readSet('saved');
+let allVideos = [];
+let channelName = 'Swipe Videos';
+let messageTimer = 0;
 let videos = [];
 let apiKey = '';
 let index = 0;
@@ -32,9 +45,42 @@ function driveId(link) {
   return /^[\w-]{20,}$/.test(value) ? value : null;
 }
 
+function readSet(name) {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(name)) || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSet(name, set) {
+  try {
+    localStorage.setItem(name, JSON.stringify([...set]));
+  } catch {
+    // Storage unavailable: the choice still lasts for this session.
+  }
+}
+
 function showMessage(text) {
+  clearTimeout(messageTimer);
   el.message.textContent = text;
   el.message.hidden = !text;
+}
+
+function flashMessage(text) {
+  showMessage(text);
+  messageTimer = setTimeout(() => showMessage(''), 3000);
+}
+
+function syncSound() {
+  el.sound.hidden = !slide?.video;
+  el.soundLabel.textContent = slide?.video?.muted ? 'Sound' : 'Mute';
+}
+
+function syncRail() {
+  const id = videos[index]?.id;
+  el.like.setAttribute('aria-pressed', String(liked.has(id)));
+  el.save.setAttribute('aria-pressed', String(saved.has(id)));
 }
 
 function mountIframe(target, id) {
@@ -59,6 +105,9 @@ function mountVideo(target, id) {
   video.loop = true;
   video.preload = 'auto';
   video.addEventListener('error', () => mountIframe(target, id), { once: true });
+  video.addEventListener('loadedmetadata', () => {
+    video.classList.toggle('wide', video.videoWidth > video.videoHeight);
+  });
   video.addEventListener('timeupdate', () => {
     if (slide?.video === video && video.duration) {
       el.seek.value = Math.round((video.currentTime / video.duration) * 1000);
@@ -77,7 +126,7 @@ async function play(video) {
     video.muted = true;
     await video.play().catch(() => {});
   }
-  if (slide?.video === video) el.sound.hidden = !video.muted;
+  if (slide?.video === video) syncSound();
 }
 
 function setPassthrough(on) {
@@ -98,14 +147,17 @@ function show(nextIndex, dir = { x: 0, y: 0 }) {
   slide = { node, video: null };
   el.seek.value = 0;
   el.seek.hidden = !apiKey;
-  el.sound.hidden = true;
+  el.sound.hidden = !apiKey;
   if (apiKey) slide.video = mountVideo(node, item.id);
   else mountIframe(node, item.id);
   el.stage.append(node);
 
   el.title.textContent = item.title;
   el.position.textContent = `${index + 1} / ${videos.length}`;
+  el.channel.textContent = item.channel || channelName;
   el.info.hidden = false;
+  el.rail.hidden = false;
+  syncRail();
 
   node.getBoundingClientRect();
   node.classList.remove('dragging');
@@ -142,9 +194,63 @@ function tap() {
     setPassthrough(true);
     return;
   }
+  if (slide.video.muted && wantsSound) {
+    slide.video.muted = false;
+    syncSound();
+    return;
+  }
   if (slide.video.paused) play(slide.video);
   else slide.video.pause();
 }
+
+function setTab(tab) {
+  el.tabHome.classList.toggle('active', tab === 'home');
+  el.tabSaved.classList.toggle('active', tab === 'saved');
+  videos = tab === 'saved' ? allVideos.filter((item) => saved.has(item.id)) : allVideos;
+  showMessage('');
+  if (videos.length) {
+    show(0);
+    return;
+  }
+  setPassthrough(false);
+  slide?.video?.pause();
+  slide?.node.remove();
+  slide = null;
+  el.info.hidden = true;
+  el.rail.hidden = true;
+  el.seek.hidden = true;
+  showMessage(tab === 'saved' ? 'No saved videos yet.' : 'No videos yet.');
+}
+
+function toggleIn(set, name) {
+  const id = videos[index]?.id;
+  if (!id) return;
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  writeSet(name, set);
+  syncRail();
+}
+
+el.like.addEventListener('click', () => toggleIn(liked, 'liked'));
+el.save.addEventListener('click', () => toggleIn(saved, 'saved'));
+el.tabHome.addEventListener('click', () => setTab('home'));
+el.tabSaved.addEventListener('click', () => setTab('saved'));
+
+el.share.addEventListener('click', async () => {
+  const item = videos[index];
+  if (!item) return;
+  const url = `${location.origin}${location.pathname}#${item.id}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: item.title, url });
+    } else {
+      await navigator.clipboard.writeText(url);
+      flashMessage('Link copied.');
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') flashMessage('Could not share this video.');
+  }
+});
 
 el.gestures.addEventListener('pointerdown', (event) => {
   if (!slide) return;
@@ -208,11 +314,10 @@ el.seek.addEventListener('input', () => {
 });
 
 el.sound.addEventListener('click', () => {
-  wantsSound = true;
-  if (slide?.video) {
-    slide.video.muted = false;
-    el.sound.hidden = true;
-  }
+  if (!slide?.video) return;
+  wantsSound = slide.video.muted;
+  slide.video.muted = !wantsSound;
+  syncSound();
 });
 
 async function start() {
@@ -221,9 +326,11 @@ async function start() {
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
     apiKey = String(data.driveApiKey || '').trim();
-    videos = (data.videos || [])
-      .map((item, i) => ({ id: driveId(item.link), title: item.title || `Video ${i + 1}` }))
+    channelName = data.channel || channelName;
+    allVideos = (data.videos || [])
+      .map((item, i) => ({ id: driveId(item.link), title: item.title || `Video ${i + 1}`, channel: item.channel }))
       .filter((item) => item.id);
+    videos = allVideos;
   } catch {
     showMessage('Could not load videos.json.');
     return;
@@ -232,7 +339,7 @@ async function start() {
     showMessage('No videos yet. Add Google Drive video links to videos.json.');
     return;
   }
-  show(0);
+  show(Math.max(videos.findIndex((item) => item.id === location.hash.slice(1)), 0));
 }
 
 const APP_FILES = ['./', 'app.js', 'style.css', 'videos.json'];
