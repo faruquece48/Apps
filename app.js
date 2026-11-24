@@ -698,47 +698,85 @@ function shuffleRank(id) {
   return shuffleRanks.get(id);
 }
 
+/* Numbered files are checked in the background, so the app opens at once.
+   Results are remembered: next time the app opens, the known files show instantly. */
+
+const PROBE_WORKERS = 2;
+let knownFiles = new Map(); // first candidate url -> real url, or '' when missing
+try { knownFiles = new Map(JSON.parse(localStorage.getItem('files') || '[]')); } catch {}
+let lastData = null;
+let probeRun = 0;
+
 // Resolves true when the file exists and the browser can read it.
-const probes = new Map();
 function probe(url) {
-  if (!probes.has(url)) {
-    probes.set(url, new Promise((resolve) => {
-      const video = document.createElement('video');
-      let settled = false;
-      const done = (ok) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        video.removeAttribute('src');
-        video.load();
-        if (!ok) probes.delete(url);
-        resolve(ok);
-      };
-      const timer = setTimeout(() => done(false), 20000);
-      video.muted = true;
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => done(true);
-      video.onerror = () => done(false);
-      video.src = url;
-    }));
-  }
-  return probes.get(url);
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeAttribute('src');
+      video.load();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(null), 20000);
+    video.muted = true;
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => done(true);
+    video.onerror = () => done(navigator.onLine ? false : null);
+    video.src = url;
+  });
 }
 
-async function findFile(item) {
+function resolveFile(item) {
   if (!item.urls) return item;
-  for (const url of item.urls) {
-    if (await probe(url)) {
-      return { ...item, url, title: decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, '') };
-    }
-  }
-  return null;
+  const url = knownFiles.get(item.urls[0]);
+  if (!url) return null;
+  return { ...item, url, title: decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, '') };
 }
 
-async function setData(data) {
+async function checkFiles(items) {
+  const run = ++probeRun;
+  const queue = items.filter((item) => item.urls);
+  let changed = false;
+  let refreshTimer = 0;
+  const refresh = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      if (run !== probeRun || !changed || !lastData) return;
+      changed = false;
+      try { localStorage.setItem('files', JSON.stringify([...knownFiles])); } catch {}
+      if (started) applyLiveData(lastData, false);
+    }, 400);
+  };
+  const worker = async () => {
+    while (queue.length && run === probeRun) {
+      const item = queue.shift();
+      const key = item.urls[0];
+      let found = '';
+      for (const url of item.urls) {
+        const ok = await probe(url);
+        if (ok === null) return; // offline or too slow: keep what we knew
+        if (ok) { found = url; break; }
+      }
+      if (knownFiles.get(key) !== found) {
+        knownFiles.set(key, found);
+        changed = true;
+        refresh();
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: PROBE_WORKERS }, worker));
+  refresh();
+}
+
+function setData(data, recheck = true) {
+  lastData = data;
   apiKey = String(data.driveApiKey || '').trim();
-  const found = await Promise.all([...expandSource(data.videos, false), ...expandSource(data.reels, true)].map(findFile));
-  allVideos = found.filter(Boolean)
+  const items = [...expandSource(data.videos, false), ...expandSource(data.reels, true)];
+  if (recheck) checkFiles(items);
+  allVideos = items.map(resolveFile).filter(Boolean)
     .map((item, i) => {
       const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
       return {
@@ -765,7 +803,7 @@ async function start() {
     const data = await response.json();
     resume = takeResumeState();
     if (Array.isArray(resume?.order)) shuffleRanks = new Map(resume.order);
-    await setData(data);
+    setData(data);
   } catch {
     if (!loadFailed) showMessage('Could not load videos. Check your internet.', 8000);
     loadFailed = true;
@@ -804,8 +842,8 @@ function isFullscreen() {
 }
 
 // New content appears without touching whatever is playing.
-async function applyLiveData(data) {
-  await setData(data);
+function applyLiveData(data, recheck = true) {
+  setData(data, recheck);
   const scroll = el.content.scrollTop;
   const fresh = current && allVideos.find((item) => item.id === current.id);
   if (fresh && fresh.url !== current.url) {
@@ -931,7 +969,7 @@ async function checkForUpdate() {
     if (!baseline) baseline = await readFiles('force-cache');
     const latest = await readFiles('no-cache');
     if (latest.json !== baseline.json) {
-      await applyLiveData(JSON.parse(latest.json));
+      applyLiveData(JSON.parse(latest.json));
       baseline.json = latest.json;
     }
     if (latest.css !== baseline.css) {
