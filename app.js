@@ -822,7 +822,7 @@ function captureState() {
 function restoreState(state) {
   wantsSound = state.wantsSound !== false;
   const chip = el.chips.querySelector(`[data-cat="${CSS.escape(String(state.category))}"]`);
-  if (chip) {
+  if (chip && !el.chips.hidden && getComputedStyle(el.chips).display !== 'none') {
     category = state.category;
     el.chips.querySelectorAll('button').forEach((button) => {
       button.classList.toggle('active', button === chip);

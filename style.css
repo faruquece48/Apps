@@ -80,6 +80,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 #search::placeholder { color: #9599a8; }
 
 #chips {
+  display: none !important;
   flex: none;
   display: flex;
   gap: 6px;
