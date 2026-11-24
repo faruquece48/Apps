@@ -382,14 +382,10 @@ el.fav.addEventListener('click', () => {
   if (current) toggleFavourite(current.id);
 });
 
-el.full.addEventListener('click', async () => {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen().catch(() => {});
-  } else if (el.player.requestFullscreen) {
-    await el.player.requestFullscreen().catch(() => {});
-  } else if (el.video.webkitEnterFullscreen) {
-    el.video.webkitEnterFullscreen();
-  }
+// The player grows to fill the app instead of going true fullscreen,
+// so the app tabs and the phone's own buttons stay visible.
+el.full.addEventListener('click', () => {
+  document.body.classList.toggle('expanded');
 });
 
 document.addEventListener('fullscreenchange', applyOrientation);
@@ -578,6 +574,7 @@ function setView(next) {
   const previous = view;
   if (previous === 'reels' && next !== 'reels') stopReel();
   view = next;
+  document.body.classList.remove('expanded');
   document.body.dataset.view = next;
   el.title.textContent = TITLES[next];
   document.querySelectorAll('#content > .view').forEach((section) => {
