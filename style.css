@@ -360,6 +360,8 @@ body[data-view="reels"] #content { padding: 0; overflow: hidden; }
 
 /* Bottom navigation */
 #tabs {
+  position: relative;
+  z-index: 40; /* stays above the image viewer and the rotate notice */
   flex: none;
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -445,7 +447,6 @@ body[data-view="reels"] #content { padding: 0; overflow: hidden; }
 
   body[data-view="watch"] #top,
   body[data-view="watch"] #search-row,
-  body[data-view="watch"] #tabs,
   body[data-view="watch"] #back,
   body[data-view="watch"] #watch-grid { display: none; }
   body[data-view="watch"] #content { padding: 0; overflow: hidden; }

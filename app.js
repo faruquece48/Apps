@@ -611,7 +611,9 @@ function setView(next) {
 
 el.tabs.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-view]');
-  if (button) setView(button.dataset.view);
+  if (!button) return;
+  if (!el.lightbox.hidden) closeLightbox();
+  setView(button.dataset.view);
 });
 
 $('see-all').addEventListener('click', () => setView('videos'));
