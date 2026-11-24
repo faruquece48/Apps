@@ -131,7 +131,41 @@ function syncFavourite() {
   el.fav.setAttribute('aria-label', on ? 'Remove from Favourite' : 'Add to Favourite');
 }
 
+/* Media loading queue
+   Phones choke when many videos load at once, so only a few load together.
+   Card previews (what the viewer sees) go before background file checks. */
+
+const MEDIA_SLOTS = 3;
+const MEDIA_TIMEOUT_MS = 15000;
+const mediaQueues = { high: [], low: [] };
+let mediaBusy = 0;
+
+function queueMedia(task, urgent) {
+  mediaQueues[urgent ? 'high' : 'low'].push(task);
+  pumpMedia();
+}
+
+function pumpMedia() {
+  while (mediaBusy < MEDIA_SLOTS && (mediaQueues.high.length || mediaQueues.low.length)) {
+    const task = mediaQueues.high.shift() || mediaQueues.low.shift();
+    mediaBusy++;
+    let freed = false;
+    const timer = setTimeout(() => free(), MEDIA_TIMEOUT_MS);
+    const free = () => {
+      if (freed) return;
+      freed = true;
+      clearTimeout(timer);
+      mediaBusy--;
+      pumpMedia();
+    };
+    task(free);
+  }
+}
+
 /* Cards */
+
+// Cards are kept and reused, so re-rendering never reloads their previews.
+const cards = new Map(); // id + url -> card
 
 const cardObserver = 'IntersectionObserver' in window
   ? new IntersectionObserver((entries) => {
@@ -149,20 +183,29 @@ function fillCard(card) {
   if (!src) return;
   const known = durations.get(item.id);
   if (item.thumb && known) return;
-  const probe = document.createElement('video');
-  probe.muted = true;
-  probe.playsInline = true;
-  probe.preload = 'metadata';
-  probe.src = `${src}#t=0.5`;
-  probe.addEventListener('loadedmetadata', () => {
-    durations.set(item.id, probe.duration);
-    card.querySelector('.dur').textContent = formatTime(probe.duration);
-  }, { once: true });
-  if (!item.thumb) card.prepend(probe);
+  queueMedia((free) => {
+    const probe = document.createElement('video');
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.preload = 'metadata';
+    probe.addEventListener('loadedmetadata', () => {
+      durations.set(item.id, probe.duration);
+      card.querySelector('.dur').textContent = formatTime(probe.duration);
+      if (item.thumb) free();
+    }, { once: true });
+    probe.addEventListener('loadeddata', free, { once: true });
+    probe.addEventListener('error', free, { once: true });
+    probe.src = `${src}#t=0.5`;
+    if (!item.thumb) card.prepend(probe);
+  }, true);
 }
 
 function videoCard(item) {
+  const key = `${item.id}|${item.url || ''}|${item.thumb || ''}`;
+  const cached = cards.get(key);
+  if (cached) return cached;
   const card = document.createElement('button');
+  cards.set(key, card);
   card.type = 'button';
   card.className = 'card';
   card.dataset.id = item.id;
@@ -181,14 +224,24 @@ function videoCard(item) {
   duration.className = 'dur';
   if (durations.has(item.id)) duration.textContent = formatTime(durations.get(item.id));
   card.append(play, duration);
-  card.addEventListener('click', () => openVideo(item));
+  card.addEventListener('click', () => {
+    openVideo(allVideos.find((video) => video.id === item.id) || item);
+  });
   if (cardObserver) cardObserver.observe(card);
   else fillCard(card);
   return card;
 }
 
 function fillGrid(grid, list, emptyText) {
-  grid.replaceChildren(...(list.length ? list.map(videoCard) : [emptyNode(emptyText)]));
+  if (!list.length) {
+    if (grid.children.length !== 1 || grid.firstElementChild.textContent !== emptyText) {
+      grid.replaceChildren(emptyNode(emptyText));
+    }
+    return;
+  }
+  const nodes = list.map(videoCard);
+  const same = nodes.length === grid.children.length && nodes.every((node, i) => grid.children[i] === node);
+  if (!same) grid.replaceChildren(...nodes);
 }
 
 function emptyNode(text) {
@@ -710,23 +763,36 @@ let probeRun = 0;
 // Resolves true when the file exists and the browser can read it.
 function probe(url) {
   return new Promise((resolve) => {
-    const video = document.createElement('video');
-    let settled = false;
-    const done = (ok) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      video.removeAttribute('src');
-      video.load();
-      resolve(ok);
-    };
-    const timer = setTimeout(() => done(null), 20000);
-    video.muted = true;
-    video.preload = 'metadata';
-    video.onloadedmetadata = () => done(true);
-    video.onerror = () => done(navigator.onLine ? false : null);
-    video.src = url;
+    queueMedia((free) => {
+      const video = document.createElement('video');
+      let settled = false;
+      const done = (ok) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        video.removeAttribute('src');
+        video.load();
+        free();
+        resolve(ok);
+      };
+      const timer = setTimeout(() => done(null), 20000);
+      video.muted = true;
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => done(true);
+      video.onerror = () => done(navigator.onLine ? false : null);
+      video.src = url;
+    }, false);
   });
+}
+
+// A full re-check of every file runs at most once an hour; new numbers are checked at once.
+const FULL_CHECK_MS = 60 * 60 * 1000;
+
+function needsCheck(item) {
+  if (!knownFiles.has(item.urls[0])) return true;
+  let last = 0;
+  try { last = Number(localStorage.getItem('filesChecked')) || 0; } catch {}
+  return Date.now() - last > FULL_CHECK_MS;
 }
 
 function resolveFile(item) {
@@ -738,8 +804,11 @@ function resolveFile(item) {
 
 async function checkFiles(items) {
   const run = ++probeRun;
-  const queue = items.filter((item) => item.urls);
+  const queue = items.filter((item) => item.urls && needsCheck(item));
+  if (!queue.length) return;
+  const fullCheck = queue.length === items.filter((item) => item.urls).length;
   let changed = false;
+  let complete = true;
   let refreshTimer = 0;
   const refresh = () => {
     clearTimeout(refreshTimer);
@@ -757,7 +826,7 @@ async function checkFiles(items) {
       let found = '';
       for (const url of item.urls) {
         const ok = await probe(url);
-        if (ok === null) return; // offline or too slow: keep what we knew
+        if (ok === null) { complete = false; return; } // offline or too slow: keep what we knew
         if (ok) { found = url; break; }
       }
       if (knownFiles.get(key) !== found) {
@@ -768,6 +837,9 @@ async function checkFiles(items) {
     }
   };
   await Promise.all(Array.from({ length: PROBE_WORKERS }, worker));
+  if (fullCheck && complete && run === probeRun) {
+    try { localStorage.setItem('filesChecked', String(Date.now())); } catch {}
+  }
   refresh();
 }
 
