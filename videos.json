@@ -1,12 +1,6 @@
 {
   "driveApiKey": "",
-  "videos": [
-    { "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_1.mp4" },
-    { "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_2.mp4" },
-    { "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_4.mkv" },
-    { "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_5.mkv" },
-    { "url": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_6.mkv" }
-  ],
+  "videos": { "link": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Videos/V_{n}.{ext}", "ext": ["mp4", "mkv"], "count": 30 },
   "reels": { "link": "https://pub-e41cce9571d4481fb5f4ff721490a204.r2.dev/Reels/R_{n}.mp4", "count": 100 },
   "images": []
 }

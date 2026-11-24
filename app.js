@@ -676,12 +676,16 @@ function expandSource(source, reel) {
   Object.entries(source.categories || {}).forEach(([name, numbers]) => {
     numbers.forEach((n) => categoryOf.set(n, name));
   });
+  const exts = [].concat(source.ext || '');
   return Array.from({ length: Number(source.count) || 0 }, (_, i) => {
     const n = i + 1;
-    const url = source.link.replaceAll('{n}', n);
+    const urls = exts.map((ext) => source.link.replaceAll('{n}', n).replaceAll('{ext}', ext));
+    const url = urls[0];
     return {
       title: decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, ''),
       url,
+      // Files listed by number are checked first, so a missing number leaves no slot.
+      urls: !reel && source.ext ? urls : null,
       category: categoryOf.get(n),
       thumb: source.thumb ? source.thumb.replaceAll('{n}', n) : '',
       reel,
@@ -695,9 +699,47 @@ function shuffleRank(id) {
   return shuffleRanks.get(id);
 }
 
-function setData(data) {
+// Resolves true when the file exists and the browser can read it.
+const probes = new Map();
+function probe(url) {
+  if (!probes.has(url)) {
+    probes.set(url, new Promise((resolve) => {
+      const video = document.createElement('video');
+      let settled = false;
+      const done = (ok) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        video.removeAttribute('src');
+        video.load();
+        if (!ok) probes.delete(url);
+        resolve(ok);
+      };
+      const timer = setTimeout(() => done(false), 20000);
+      video.muted = true;
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => done(true);
+      video.onerror = () => done(false);
+      video.src = url;
+    }));
+  }
+  return probes.get(url);
+}
+
+async function findFile(item) {
+  if (!item.urls) return item;
+  for (const url of item.urls) {
+    if (await probe(url)) {
+      return { ...item, url, title: decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, '') };
+    }
+  }
+  return null;
+}
+
+async function setData(data) {
   apiKey = String(data.driveApiKey || '').trim();
-  allVideos = [...expandSource(data.videos, false), ...expandSource(data.reels, true)]
+  const found = await Promise.all([...expandSource(data.videos, false), ...expandSource(data.reels, true)].map(findFile));
+  allVideos = found.filter(Boolean)
     .map((item, i) => {
       const id = item.url ? decodeURIComponent(item.url.split('/').pop()).replace(/\.\w+$/, '') : driveId(item.link);
       return {
@@ -724,7 +766,7 @@ async function start() {
     const data = await response.json();
     resume = takeResumeState();
     if (Array.isArray(resume?.order)) shuffleRanks = new Map(resume.order);
-    setData(data);
+    await setData(data);
   } catch {
     if (!loadFailed) showMessage('Could not load videos. Check your internet.', 8000);
     loadFailed = true;
@@ -763,9 +805,9 @@ function isFullscreen() {
 }
 
 // New content appears without touching whatever is playing.
-function applyLiveData(data) {
+async function applyLiveData(data) {
+  await setData(data);
   const scroll = el.content.scrollTop;
-  setData(data);
   const fresh = current && allVideos.find((item) => item.id === current.id);
   if (fresh && fresh.url !== current.url) {
     const time = el.video.currentTime;
@@ -890,7 +932,7 @@ async function checkForUpdate() {
     if (!baseline) baseline = await readFiles('force-cache');
     const latest = await readFiles('no-cache');
     if (latest.json !== baseline.json) {
-      applyLiveData(JSON.parse(latest.json));
+      await applyLiveData(JSON.parse(latest.json));
       baseline.json = latest.json;
     }
     if (latest.css !== baseline.css) {
