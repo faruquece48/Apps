@@ -872,6 +872,102 @@ async function checkFiles(items) {
   refresh();
 }
 
+/* Downloads
+   Every video is saved on the device in 8 MB pieces, one video at a time, so it
+   plays later without buffering (sw.js serves it). Downloading pauses while the
+   video being watched needs the connection, skips mobile data, and picks up
+   where it stopped. Videos removed from the list are deleted from the device. */
+
+const VIDEO_CACHE = 'videos-v1';
+const CHUNK = 8 * 1024 * 1024;
+const SPARE_BYTES = 500 * 1024 * 1024;
+let downloading = false;
+let downloadsBroken = false;
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.storage?.persist?.().catch(() => {});
+}
+
+function onMobileData() {
+  const connection = navigator.connection;
+  return Boolean(connection && (connection.saveData || connection.type === 'cellular'));
+}
+
+function waitForIdle() {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (!playerNeedsBandwidth() && navigator.onLine && !onMobileData()) resolve();
+      else setTimeout(check, 3000);
+    };
+    check();
+  });
+}
+
+async function readMeta(cache, url) {
+  const response = await cache.match(`${url}?meta`);
+  return response ? response.json() : null;
+}
+
+async function downloadVideo(cache, url) {
+  let meta = await readMeta(cache, url);
+  if (meta?.complete) return true;
+  meta = meta || { size: 0, chunk: CHUNK, type: '', done: 0, complete: false };
+  for (let part = meta.done; !meta.size || part * CHUNK < meta.size; part++) {
+    await waitForIdle();
+    const start = part * CHUNK;
+    const response = await fetch(url, { mode: 'cors', headers: { Range: `bytes=${start}-${start + CHUNK - 1}` } });
+    if (response.status !== 206) throw new Error(`range ${response.status}`);
+    const total = Number((response.headers.get('content-range') || '').split('/')[1]);
+    if (!total) throw new Error('no size');
+    if (!meta.size) {
+      const estimate = await navigator.storage?.estimate?.();
+      if (estimate && estimate.quota - estimate.usage < total + SPARE_BYTES) return false;
+      meta.size = total;
+      meta.type = response.headers.get('content-type') || '';
+    }
+    await cache.put(`${url}?part=${part}`, new Response(await response.blob()));
+    meta.done = part + 1;
+    meta.complete = meta.done * CHUNK >= meta.size;
+    await cache.put(`${url}?meta`, new Response(JSON.stringify(meta)));
+  }
+  return true;
+}
+
+async function removeOldDownloads(cache, keep) {
+  for (const request of await cache.keys()) {
+    const url = request.url.replace(/\?(meta|part=\d+)$/, '');
+    if (!keep.has(url)) await cache.delete(request);
+  }
+}
+
+async function downloadAll() {
+  if (downloading || downloadsBroken || !('caches' in window) || !started) return;
+  downloading = true;
+  try {
+    const cache = await caches.open(VIDEO_CACHE);
+    const wanted = allVideos.filter((item) => item.url).map((item) => item.url);
+    await removeOldDownloads(cache, new Set(wanted));
+    // Favourites first, then the rest in feed order.
+    wanted.sort((a, b) => Number(favourites.has(idOf(b))) - Number(favourites.has(idOf(a))));
+    for (const url of wanted) {
+      if (!(await downloadVideo(cache, url))) break; // device is full
+    }
+  } catch (error) {
+    // A blocked (CORS) request will never work, so stop trying until the app reopens.
+    if (error instanceof TypeError && navigator.onLine) downloadsBroken = true;
+  } finally {
+    downloading = false;
+  }
+}
+
+function idOf(url) {
+  return decodeURIComponent(url.split('/').pop()).replace(/\.\w+$/, '');
+}
+
+window.addEventListener('online', () => downloadAll());
+navigator.connection?.addEventListener?.('change', () => downloadAll());
+
 function setData(data, recheck = true) {
   lastData = data;
   apiKey = String(data.driveApiKey || '').trim();
@@ -914,6 +1010,7 @@ async function start() {
   showMessage('');
   if (resume) restoreState(resume);
   else setView('home');
+  downloadAll();
 }
 
 /* Silent updates */
@@ -970,6 +1067,7 @@ function applyLiveData(data, recheck = true) {
   syncReels();
   renderGrids();
   el.content.scrollTop = scroll;
+  downloadAll();
 }
 
 function applyStyles() {
