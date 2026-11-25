@@ -145,7 +145,36 @@ function queueMedia(task, urgent) {
   pumpMedia();
 }
 
+// The video being watched gets the connection first: background loading waits
+// until it has a healthy buffer ahead of the playhead.
+const PLAYER_BUFFER_S = 20;
+let pumpRetry = 0;
+
+function watchingVideo() {
+  if (view === 'reels') return activeReel?.querySelector('video') || null;
+  if ((view === 'home' || view === 'watch') && el.video.getAttribute('src')) return el.video;
+  return null;
+}
+
+function playerNeedsBandwidth() {
+  const video = watchingVideo();
+  if (!video || video.paused || video.ended) return false;
+  if (video.readyState < 3) return true;
+  const { buffered, currentTime, duration } = video;
+  for (let i = 0; i < buffered.length; i++) {
+    if (buffered.start(i) <= currentTime + 0.5 && buffered.end(i) >= currentTime) {
+      return buffered.end(i) - currentTime < Math.min(PLAYER_BUFFER_S, (duration || Infinity) - currentTime - 0.5);
+    }
+  }
+  return true;
+}
+
 function pumpMedia() {
+  if (playerNeedsBandwidth()) {
+    clearTimeout(pumpRetry);
+    pumpRetry = setTimeout(pumpMedia, 1500);
+    return;
+  }
   while (mediaBusy < MEDIA_SLOTS && (mediaQueues.high.length || mediaQueues.low.length)) {
     const task = mediaQueues.high.shift() || mediaQueues.low.shift();
     mediaBusy++;
